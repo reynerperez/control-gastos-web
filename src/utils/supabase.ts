@@ -13,11 +13,15 @@ import { createClient } from '@supabase/supabase-js'
  */
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Supabase renombró la clave pública a "publishable key". Aceptamos ambos
+// nombres para que desarrollo (anon) y producción (publishable) funcionen.
+const supabaseKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ??
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error(
-    'Faltan las variables de entorno VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY. Revisa tu archivo .env'
+    'Faltan las variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY (o VITE_SUPABASE_PUBLISHABLE_KEY). Revisa tu archivo .env'
   )
 }
 

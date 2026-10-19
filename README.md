@@ -185,6 +185,7 @@ src/
                            # installments (MSI), recurringCharges, paymentPeriods
   constants/theme.ts       # paleta derivada de tamagui.config.ts
 scripts/smoke.mjs          # prueba de humo con Chrome DevTools Protocol
+wrangler.jsonc             # deploy Cloudflare + fallback SPA
 supabase/
   migrations/              # fuente principal del esquema (MSI, recurrentes, RLS)
   config.toml              # configuración local de Supabase CLI
@@ -211,22 +212,39 @@ Si agregas un icono nuevo en los ajustes del móvil, añádelo también a `ICON_
 ## Despliegue
 
 `npm run build` genera un sitio estático en `dist/` (Vite usa el modo `production`, por lo que
-toma los valores de `.env.production` o, en su defecto, de las variables del host). Al ser una
-SPA, el host debe redirigir todas las rutas a `index.html`: en este repo ya está en
-`public/_redirects` (`/* /index.html 200`).
+toma los valores de `.env.production` o, en su defecto, de las variables del host).
 
-### Cloudflare Pages
+Al ser una SPA, el runtime debe servir `index.html` para cualquier ruta de navegación. Eso se
+configura en `wrangler.jsonc`:
+
+```jsonc
+{
+  "name": "bills",
+  "compatibility_date": "2026-10-19",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
+```
+
+> No uses `public/_redirects` con `/* /index.html 200`: el runtime nuevo de Cloudflare lo
+> detecta como bucle infinito (error `100324`). El fallback de SPA va en `wrangler.jsonc`.
+
+### Cloudflare Workers / Pages (static assets)
 
 | Ajuste | Valor |
 | --- | --- |
 | Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
 | Output directory | `dist` |
 | Node version | 22 (ver `.nvmrc`) |
 
 Las variables **no se suben al repo**: defínelas en **Settings → Environment variables** del
 proyecto, por separado para cada entorno:
 
-- **Production:** `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` del proyecto Supabase de producción.
+- **Production:** `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` (o
+  `VITE_SUPABASE_PUBLISHABLE_KEY`) del proyecto Supabase de producción.
 - **Preview:** los valores del proyecto de desarrollo (o de una rama/staging).
 
 Vite expone las variables `VITE_*` que llegan por `process.env` durante el build, así que las
