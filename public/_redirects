@@ -1,0 +1,2 @@
+# SPA: redirige todas las rutas a index.html (Cloudflare Pages / Netlify).
+/* /index.html 200
