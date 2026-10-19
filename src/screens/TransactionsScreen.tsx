@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Text, XStack, YStack } from 'tamagui'
 
@@ -14,20 +14,17 @@ import { useFilters } from '@/contexts/FiltersContext'
 import { useModals } from '@/contexts/ModalsContext'
 import { isWithinPeriod, usePeriod } from '@/contexts/PeriodContext'
 import { useData } from '@/hooks/useData'
-import { Transaction } from '@/types'
-import {
-  getStatementPeriod,
-  type StatementPeriod,
-} from '@/utils/creditCardRecommendation'
+import { RecurringCharge, Transaction } from '@/types'
+import { type StatementPeriod } from '@/utils/creditCardRecommendation'
 import { formatCurrency, formatDateLabel, formatMonthLabel, toISODate } from '@/utils/format'
 import {
   getTransactionDisplayAmount,
   isInstallmentTransaction,
 } from '@/utils/installments'
 import {
-  buildCardProjectionGroups,
-  getProjectionWindow,
-  type ProjectionGroup,
+  buildCardPeriodGroups,
+  RECURRING_PROJECTION_MONTHS,
+  type CardPeriodGroup,
 } from '@/utils/paymentPeriods'
 import { getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { getUserDisplayName } from '@/utils/user'
@@ -77,9 +74,12 @@ export default function TransactionsScreen() {
     (onlyPending ? 1 : 0) +
     (query ? 1 : 0)
 
-  const filtered = useMemo(() => {
-    return transactions.filter((transaction) => {
-      if (!isWithinPeriod(transaction.date, bounds)) return false
+  /**
+   * Filtros que NO dependen de la fecha. Se reutilizan en la agrupación por
+   * periodos para incluir el ciclo completo sin perder categoría/búsqueda.
+   */
+  const matchesNonDateFilters = useCallback(
+    (transaction: Transaction) => {
       const typeOk = typeFilter === 'all' || transaction.type === typeFilter
       const pendingOk = !onlyPending || transaction.breakdown_status === 'pending'
       const categoryOk =
@@ -96,8 +96,17 @@ export default function TransactionsScreen() {
         (transaction.payment_method_id != null &&
           selectedPaymentMethods.includes(transaction.payment_method_id))
       return typeOk && categoryOk && pendingOk && searchOk && paymentOk
-    })
-  }, [transactions, bounds, typeFilter, onlyPending, selectedCategories, selectedPaymentMethods, query])
+    },
+    [typeFilter, onlyPending, selectedCategories, selectedPaymentMethods, query]
+  )
+
+  const filtered = useMemo(() => {
+    return transactions.filter(
+      (transaction) =>
+        isWithinPeriod(transaction.date, bounds) &&
+        matchesNonDateFilters(transaction)
+    )
+  }, [transactions, bounds, matchesNonDateFilters])
 
   const total = useMemo(
     () =>
@@ -149,116 +158,85 @@ export default function TransactionsScreen() {
 
   const usePeriodGroups = !!activeCreditCard && groupingMode !== 'month'
 
-  // Ventana para proyectar MSI/servicios: el periodo visible o, en "todo el
-  // historial", desde el movimiento más antiguo hasta 3 años a futuro.
-  const projectionWindow = useMemo(
-    () =>
-      bounds.start && bounds.end
-        ? { fromISO: bounds.start, toISO: bounds.end }
-        : getProjectionWindow(transactions),
-    [bounds.start, bounds.end, transactions]
+  /** Los compromisos también respetan búsqueda, categoría y tipo. */
+  const matchesRecurringFilters = useCallback(
+    (charge: RecurringCharge) => {
+      if (typeFilter === 'income') return false
+      // Una proyección no tiene estado de desglose: en "Pendientes" no aplica.
+      if (onlyPending) return false
+      if (
+        selectedCategories.length > 0 &&
+        (!charge.category_id || !selectedCategories.includes(charge.category_id))
+      ) {
+        return false
+      }
+      if (query) {
+        const haystack = [charge.name, charge.note, charge.category?.name]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(query)) return false
+      }
+      if (
+        selectedPaymentMethods.length > 0 &&
+        charge.payment_method_id != null &&
+        !selectedPaymentMethods.includes(charge.payment_method_id)
+      ) {
+        return false
+      }
+      return true
+    },
+    [typeFilter, onlyPending, selectedCategories, selectedPaymentMethods, query]
   )
 
-  const projectionGroups = useMemo(() => {
-    if (!usePeriodGroups || !activeCreditCard) {
-      return new Map<string, ProjectionGroup>()
-    }
-    const groups = buildCardProjectionGroups({
+  /**
+   * En modo periodos, el rango de fechas selecciona por FECHA LÍMITE DE PAGO
+   * y cada grupo incluye su ciclo completo. Las proyecciones recurrentes se
+   * limitan a 12 meses desde el mes actual.
+   */
+  const periodGroups = useMemo(() => {
+    if (!usePeriodGroups || !activeCreditCard) return null
+    return buildCardPeriodGroups({
       card: activeCreditCard,
       transactions,
       recurringCharges,
       paymentMethods,
-      fromISO: projectionWindow.fromISO,
-      toISO: projectionWindow.toISO,
+      mode: period.mode,
+      bounds,
+      includeTransaction: matchesNonDateFilters,
+      includeRecurring: matchesRecurringFilters,
+      projectionMonths: RECURRING_PROJECTION_MONTHS,
     })
-    return new Map(groups.map((group) => [group.key, group]))
   }, [
     usePeriodGroups,
     activeCreditCard,
     transactions,
     recurringCharges,
     paymentMethods,
-    projectionWindow,
+    period.mode,
+    bounds,
+    matchesNonDateFilters,
+    matchesRecurringFilters,
   ])
 
-  type PeriodBucket = {
-    key: string
-    period: StatementPeriod
-    transactions: Transaction[]
-    total: number
-    installmentLines: ProjectionGroup['installmentLines']
-    recurringLines: ProjectionGroup['recurringLines']
-    projectedTotal: number
-  }
+  const periodSummary = useMemo(() => {
+    if (!periodGroups) return null
+    return periodGroups.reduce(
+      (summary, group) => ({
+        transactions: summary.transactions + group.transactions.length,
+        projected:
+          summary.projected +
+          group.installmentLines.length +
+          group.recurringLines.length,
+        total: summary.total + group.total,
+      }),
+      { transactions: 0, projected: 0, total: 0 }
+    )
+  }, [periodGroups])
 
-  const periodGroups = useMemo(() => {
-    if (!usePeriodGroups || !activeCreditCard) return null
-    const map = new Map<string, PeriodBucket>()
-
-    for (const transaction of filtered) {
-      const statement = getStatementPeriod(transaction.date, activeCreditCard)
-      if (!statement) continue
-      let group = map.get(statement.key)
-      if (!group) {
-        group = {
-          key: statement.key,
-          period: statement,
-          transactions: [],
-          total: 0,
-          installmentLines: [],
-          recurringLines: [],
-          projectedTotal: 0,
-        }
-        map.set(statement.key, group)
-      }
-      group.transactions.push(transaction)
-      const amount = getTransactionDisplayAmount(transaction)
-      group.total += transaction.type === 'income' ? amount : -amount
-    }
-
-    // Cargos proyectados que aún no tienen grupo (parcialidades de MSI de
-    // compras antiguas o servicios recurrentes del periodo).
-    for (const [key, projection] of projectionGroups) {
-      let group = map.get(key)
-      if (!group) {
-        group = {
-          key,
-          period: projection.period,
-          transactions: [],
-          total: 0,
-          installmentLines: [],
-          recurringLines: [],
-          projectedTotal: 0,
-        }
-        map.set(key, group)
-      }
-      // La primera parcialidad ya está representada por el movimiento real:
-      // no se duplica en la lista de proyectados.
-      const transactionIds = new Set(group.transactions.map((entry) => entry.id))
-      group.installmentLines = projection.installmentLines.filter(
-        (line) => !transactionIds.has(line.transaction.id)
-      )
-      group.recurringLines = projection.recurringLines
-      group.projectedTotal = Math.round(
-        (group.installmentLines.reduce((sum, line) => sum + line.amount, 0) +
-          group.recurringLines.reduce((sum, line) => sum + line.amount, 0)) *
-          100
-      ) / 100
-      // Los gastos proyectados restan del total del periodo.
-      group.total -= group.projectedTotal
-    }
-
-    return [...map.values()]
-      .filter(
-        (group) =>
-          group.transactions.length > 0 ||
-          group.installmentLines.length > 0 ||
-          group.recurringLines.length > 0
-      )
-      .sort(
-        (a, b) => b.period.closingDate.getTime() - a.period.closingDate.getTime()
-      )
-  }, [filtered, activeCreditCard, usePeriodGroups, projectionGroups])
+  const displayCount = periodSummary?.transactions ?? filtered.length
+  const displayProjectedCount = periodSummary?.projected ?? 0
+  const displayTotal = periodSummary?.total ?? total
 
   return (
     <YStack gap="$md">
@@ -455,41 +433,50 @@ export default function TransactionsScreen() {
         </XStack>
       ) : null}
 
-      {usePeriodGroups && period.mode !== 'all' ? (
+      {usePeriodGroups ? (
         <XStack
           alignItems="center"
           gap="$sm"
           paddingHorizontal="$sm"
           paddingVertical="$xs"
           borderRadius="$sm"
-          backgroundColor={palette.warning + '12'}>
-          <AppIcon name="information-circle" size={14} color={palette.warning} />
+          backgroundColor={palette.primary + '0F'}
+          borderWidth={1}
+          borderColor={palette.primary + '22'}>
+          <AppIcon name="information-circle" size={14} color={palette.primary} />
           <Text flex={1} fontSize={11} color="$tabIconDefault">
-            Los totales por periodo pueden estar incompletos por el filtro de fechas.
+            {period.mode === 'all'
+              ? `Historial completo. Los compromisos recurrentes se proyectan hasta ${RECURRING_PROJECTION_MONTHS} meses.`
+              : `El rango selecciona periodos por fecha límite de pago. Cada periodo incluye su ciclo completo; los recurrentes se proyectan desde el mes actual y hasta ${RECURRING_PROJECTION_MONTHS} meses.`}
           </Text>
-          <Text
-            fontSize={11}
-            fontWeight="700"
-            color="$primary"
-            cursor="pointer"
-            style={{ transition: CSS_TRANSITION }}
-            pressStyle={{ opacity: 0.7 }}
-            onPress={setAll}
-            role="button"
-            aria-label="Ver todo el historial">
-            Ver todo el historial
-          </Text>
+          {period.mode !== 'all' ? (
+            <Text
+              fontSize={11}
+              fontWeight="700"
+              color="$primary"
+              cursor="pointer"
+              style={{ transition: CSS_TRANSITION }}
+              pressStyle={{ opacity: 0.7 }}
+              onPress={setAll}
+              role="button"
+              aria-label="Ver todo el historial">
+              Ver todo el historial
+            </Text>
+          ) : null}
         </XStack>
       ) : null}
 
       {/* Totales del filtro */}
       <XStack justifyContent="space-between" alignItems="center" paddingHorizontal="$xs">
         <Text fontSize={12} fontWeight="500" color="$tabIconDefault">
-          {filtered.length} movimiento{filtered.length === 1 ? '' : 's'}
+          {displayCount} movimiento{displayCount === 1 ? '' : 's'}
+          {displayProjectedCount > 0
+            ? ` + ${displayProjectedCount} proyectado${displayProjectedCount === 1 ? '' : 's'}`
+            : ''}
         </Text>
-        <Text fontSize={14} fontWeight="800" color={total >= 0 ? '$income' : '$expense'}>
-          {total >= 0 ? '+' : ''}
-          {formatCurrency(total)}
+        <Text fontSize={14} fontWeight="800" color={displayTotal >= 0 ? '$income' : '$expense'}>
+          {displayTotal >= 0 ? '+' : ''}
+          {formatCurrency(displayTotal)}
         </Text>
       </XStack>
 
@@ -498,14 +485,18 @@ export default function TransactionsScreen() {
         <Text fontSize={14} color="$tabIconDefault">
           Cargando movimientos…
         </Text>
-      ) : filtered.length === 0 ? (
-        <YStack alignItems="center" gap="$md" paddingVertical="$xxl">
-          <AppIcon name="receipt-outline" size={44} color={palette.muted} />
-          <Text color="$tabIconDefault" textAlign="center">
-            No hay movimientos con estos filtros.
-          </Text>
-        </YStack>
       ) : periodGroups ? (
+        periodGroups.length === 0 ? (
+          <YStack alignItems="center" gap="$md" paddingVertical="$xxl">
+            <AppIcon name="calendar-outline" size={44} color={palette.muted} />
+            <Text color="$tabIconDefault" textAlign="center">
+              No hay periodos con fecha límite de pago en este rango.
+            </Text>
+            <Text fontSize={12} color="$tabIconDefault" textAlign="center">
+              Prueba con el mes siguiente o cambia la agrupación a «Meses».
+            </Text>
+          </YStack>
+        ) : (
         <YStack gap="$lg">
           {periodGroups.map((group) => {
             const collapsed = collapsedGroups.has(group.key)
@@ -542,6 +533,14 @@ export default function TransactionsScreen() {
               </YStack>
             )
           })}
+        </YStack>
+        )
+      ) : filtered.length === 0 ? (
+        <YStack alignItems="center" gap="$md" paddingVertical="$xxl">
+          <AppIcon name="receipt-outline" size={44} color={palette.muted} />
+          <Text color="$tabIconDefault" textAlign="center">
+            No hay movimientos con estos filtros.
+          </Text>
         </YStack>
       ) : (
         <YStack gap="$lg">
@@ -978,8 +977,8 @@ function ProjectedCharges({
   total,
   onOpenTransaction,
 }: {
-  installmentLines: ProjectionGroup['installmentLines']
-  recurringLines: ProjectionGroup['recurringLines']
+  installmentLines: CardPeriodGroup['installmentLines']
+  recurringLines: CardPeriodGroup['recurringLines']
   total: number
   onOpenTransaction: (id: string) => void
 }) {

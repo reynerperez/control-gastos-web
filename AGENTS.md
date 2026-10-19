@@ -14,7 +14,9 @@ datos, tablas, RLS y **design system** con la app móvil Expo que vive en `../co
    componentes nuevos. La app usa la versión **2.7.7** (igual que el móvil), no la 3.x.
 3. **Capa de datos:** todo el CRUD vive en `src/hooks/useData.tsx` y se consume con `useData()`.
    No escribas consultas a Supabase dentro de componentes. El esquema (tablas, columnas,
-   políticas) es el mismo del móvil: revisa `../cotrol-gastos/supabase/migrations/`.
+   políticas) es el mismo del móvil y **las migraciones viven en este repo**
+   (`supabase/migrations/`): la web es la fuente principal. No agregues migraciones nuevas
+   en `../cotrol-gastos`.
 4. **Código compartido:** los ficheros listados en el README («Cambios compartidos con la app
    móvil») se copian a mano. Si modificas uno aquí, replica el cambio allí cuando aplique,
    y viceversa. No agregues imports de React Native (`react-native`, `expo-*`) a esos ficheros:

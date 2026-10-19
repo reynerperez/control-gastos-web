@@ -52,7 +52,31 @@ Consecuencias en los totales:
   deja de proyectar el saldo; el pago real se registra como movimiento normal.
 - Las proyecciones son informativas: **no crean movimientos** ni modifican el saldo.
 
-Migración: `../cotrol-gastos/supabase/migrations/20261019090000_msi_recurring_charges.sql`.
+### Agrupación por periodos de pago
+
+Con una sola tarjeta de crédito filtrada, la vista «Periodos» cambia el significado del
+selector de fechas: selecciona periodos por su **fecha límite de pago**, no por la fecha de
+compra. Así cada grupo incluye el ciclo completo (aunque parte del ciclo caiga en el mes
+anterior) y los totales no quedan incompletos.
+
+- **Mes/rango:** muestra los periodos cuya fecha límite cae en el rango y todas las compras
+  de su ciclo.
+- **Todo el historial:** muestra todo el historial real y las parcialidades MSI completas
+  (plazo finito). Los compromisos recurrentes se proyectan **solo 12 meses** desde el mes
+  actual; no se inventan cargos recurrentes del pasado ni se proyectan servicios a 2031.
+- Los filtros de categoría, búsqueda, tipo y pendientes también se aplican a las
+  proyecciones.
+
+Migración: `supabase/migrations/20261019163800_msi_recurring_charges.sql`. La web es la
+fuente principal del esquema; el móvil consume la misma base de datos.
+
+```bash
+supabase db push        # aplica las migraciones al proyecto vinculado
+```
+
+> `npm run dev` usa el proyecto Supabase de `.env.development`; `npm run build` usa el de
+> `.env.production`. Si un cambio no aparece en desarrollo, verifica contra qué proyecto
+> está vinculada la CLI con `supabase migration list`.
 
 ## Sistema de diseño
 
@@ -161,6 +185,9 @@ src/
                            # installments (MSI), recurringCharges, paymentPeriods
   constants/theme.ts       # paleta derivada de tamagui.config.ts
 scripts/smoke.mjs          # prueba de humo con Chrome DevTools Protocol
+supabase/
+  migrations/              # fuente principal del esquema (MSI, recurrentes, RLS)
+  config.toml              # configuración local de Supabase CLI
 ```
 
 ## Cambios compartidos con la app móvil

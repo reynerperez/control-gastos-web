@@ -1,0 +1,3 @@
+-- Seeds opcionales del proyecto Control de Gastos (web).
+-- Las tablas base y los datos los administra Supabase; este archivo
+-- existe para que `supabase db reset` no falle por un seed ausente.
