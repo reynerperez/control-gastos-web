@@ -5,6 +5,10 @@ import {
 } from '@/types'
 
 import {
+  EMPTY_HOLIDAYS,
+  type HolidaySet,
+} from '@/utils/bankingDates'
+import {
   getStatementPeriod,
   type StatementPeriod,
 } from '@/utils/creditCardRecommendation'
@@ -85,6 +89,7 @@ interface BuildCardPeriodGroupsParams {
   includeTransaction?: (transaction: Transaction) => boolean
   /** Filtros aplicados a los compromisos recurrentes */
   includeRecurring?: (charge: RecurringCharge) => boolean
+  holidays?: HolidaySet
   today?: Date
   /** Meses de proyección para cargos indeterminados (por defecto 12) */
   projectionMonths?: number
@@ -113,6 +118,7 @@ export function buildCardPeriodGroups({
   bounds,
   includeTransaction,
   includeRecurring,
+  holidays = EMPTY_HOLIDAYS,
   today = new Date(),
   projectionMonths = 12,
 }: BuildCardPeriodGroupsParams): CardPeriodGroup[] {
@@ -135,19 +141,19 @@ export function buildCardPeriodGroups({
 
   // ── 1. Periodos de movimientos reales ───────────────────────────
   for (const transaction of cardTransactions) {
-    ensurePeriod(getStatementPeriod(transaction.date, card))
+    ensurePeriod(getStatementPeriod(transaction.date, card, holidays))
   }
 
   // ── 2. Periodos de parcialidades MSI activas ────────────────────
   const installmentLinesByPeriod = new Map<string, InstallmentLine[]>()
   for (const transaction of cardTransactions) {
     if (!isInstallmentTransaction(transaction)) continue
-    const plan = getInstallmentPlan(transaction, card, today)
+    const plan = getInstallmentPlan(transaction, card, today, holidays)
     if (!plan || plan.settled) continue
 
     for (const installment of plan.installments) {
       const period = ensurePeriod(
-        statementPeriodFromClosing(installment.closingDate, card)
+        statementPeriodFromClosing(installment.closingDate, card, holidays)
       )
       if (!period) continue
       const lines = installmentLinesByPeriod.get(period.key) ?? []
@@ -196,7 +202,8 @@ export function buildCardPeriodGroups({
         charge,
         method,
         recurringFrom,
-        recurringTo
+        recurringTo,
+        holidays
       )) {
         if (!occurrence.period) continue
         const period = ensurePeriod(occurrence.period)
@@ -245,7 +252,7 @@ export function buildCardPeriodGroups({
 
   for (const transaction of cardTransactions) {
     if (!visibleTransactionIds.has(transaction.id)) continue
-    const period = getStatementPeriod(transaction.date, card)
+    const period = getStatementPeriod(transaction.date, card, holidays)
     if (!period) continue
     const group = groups.get(period.key)
     if (!group) continue

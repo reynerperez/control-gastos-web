@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal'
 import { SearchSelect, type SelectOption } from '@/components/ui/SearchSelect'
 import { palette } from '@/constants/theme'
 import { CSS_TRANSITION } from '@/constants/ui'
+import { useHolidays } from '@/contexts/HolidaysContext'
 import { useData } from '@/hooks/useData'
 import { PaymentMethodType, TransactionType } from '@/types'
 import {
@@ -71,6 +72,7 @@ function TransactionFormDialog({
     updateTransaction,
     deleteTransaction,
   } = useData()
+  const { holidays } = useHolidays()
 
   const editing = transactionId ? transactions.find((item) => item.id === transactionId) : undefined
 
@@ -82,7 +84,7 @@ function TransactionFormDialog({
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(() => {
     if (editing) return editing.payment_method_id ?? null
     // Preselección inteligente: la tarjeta con más días de financiamiento
-    return getBestCreditCard(paymentMethods)?.method.id ?? null
+    return getBestCreditCard(paymentMethods, holidays)?.method.id ?? null
   })
   const [date, setDate] = useState(editing?.date ?? toISODate(new Date()))
   const [note, setNote] = useState(editing?.note ?? '')
@@ -111,7 +113,12 @@ function TransactionFormDialog({
       : []
   const editingPlanDetails =
     editing && editingPlan
-      ? getInstallmentPlan(editing, editing.payment_method ?? selectedMethod)
+      ? getInstallmentPlan(
+          editing,
+          editing.payment_method ?? selectedMethod,
+          new Date(),
+          holidays
+        )
       : null
 
   const filteredCategories = useMemo(
@@ -130,7 +137,10 @@ function TransactionFormDialog({
     [filteredCategories]
   )
 
-  const creditCardPlans = useMemo(() => getCreditCardPlans(paymentMethods), [paymentMethods])
+  const creditCardPlans = useMemo(
+    () => getCreditCardPlans(paymentMethods, holidays),
+    [paymentMethods, holidays]
+  )
   const bestPlan = creditCardPlans[0] ?? null
 
   const paymentOptions = useMemo<SelectOption[]>(
@@ -156,12 +166,12 @@ function TransactionFormDialog({
       autoSelectedRef.current = true
       return
     }
-    const best = getBestCreditCard(paymentMethods)
+    const best = getBestCreditCard(paymentMethods, holidays)
     if (best) {
       setPaymentMethodId(best.method.id)
       autoSelectedRef.current = true
     }
-  }, [editing, paymentMethodId, paymentMethods])
+  }, [editing, paymentMethodId, paymentMethods, holidays])
 
   const handleCategorySelect = (id: string | null) => {
     setCategoryId(id)
@@ -219,7 +229,7 @@ function TransactionFormDialog({
         setError('Elige entre 2 y 60 parcialidades.')
         return
       }
-      const firstPeriod = getStatementPeriod(date, selectedMethod)
+      const firstPeriod = getStatementPeriod(date, selectedMethod, holidays)
       if (!firstPeriod) {
         setError('No se pudo calcular el primer corte. Revisa la fecha y la tarjeta.')
         return

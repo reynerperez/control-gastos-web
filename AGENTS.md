@@ -17,11 +17,14 @@ datos, tablas, RLS y **design system** con la app móvil Expo que vive en `../co
    políticas) es el mismo del móvil y **las migraciones viven en este repo**
    (`supabase/migrations/`): la web es la fuente principal. No agregues migraciones nuevas
    en `../cotrol-gastos`.
-4. **Código compartido:** los ficheros listados en el README («Cambios compartidos con la app
+4. **Fechas de pago:** usa `src/utils/bankingDates.ts` con el calendario de
+   `HolidaysContext`. No existe `payment_methods.due_day`; la fecha se calcula con
+   `grace_days` + `grace_days_type` (`natural`/`business`) y el calendario CNBV.
+5. **Código compartido:** los ficheros listados en el README («Cambios compartidos con la app
    móvil») se copian a mano. Si modificas uno aquí, replica el cambio allí cuando aplique,
    y viceversa. No agregues imports de React Native (`react-native`, `expo-*`) a esos ficheros:
    romperían la copia.
-5. **Idioma:** la interfaz, los comentarios y los mensajes de error van en español.
+6. **Idioma:** la interfaz, los comentarios y los mensajes de error van en español.
 
 ## Convenciones de UI web
 

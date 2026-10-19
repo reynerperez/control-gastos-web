@@ -9,7 +9,8 @@ import { AppIcon } from '@/components/ui/Icon'
 import { MonthSelector } from '@/components/ui/MonthSelector'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { palette } from '@/constants/theme'
-import { TYPO, CSS_TRANSITION } from '@/constants/ui'
+import { CONTROL_HEIGHT, TYPO, CSS_TRANSITION } from '@/constants/ui'
+import { useHolidays } from '@/contexts/HolidaysContext'
 import { isWithinPeriod, usePeriod } from '@/contexts/PeriodContext'
 import { useData } from '@/hooks/useData'
 import { useModals } from '@/contexts/ModalsContext'
@@ -25,6 +26,11 @@ import {
   getEffectiveDetailAmount,
   getTransactionDisplayAmount,
 } from '@/utils/installments'
+import { capitalizeLabel } from '@/utils/text'
+import {
+  getUpcomingCardPayments,
+  type UpcomingCardPayment,
+} from '@/utils/upcomingCardPayments'
 
 /**
  * Resumen — equivale a `app/(tabs)/index.tsx` del móvil:
@@ -33,15 +39,37 @@ import {
  */
 export default function DashboardScreen() {
   const navigate = useNavigate()
-  const { transactions, budgets, paymentMethods, loading, refreshing, refresh } = useData()
+  const { transactions, budgets, paymentMethods, recurringCharges, loading, refreshing, refresh } =
+    useData()
   const { period, bounds } = usePeriod()
   const { openPeriodPicker } = useModals()
+  const { holidays } = useHolidays()
 
   const monthKey = toMonthKey(period.month)
 
   // Recomendación de tarjeta para hoy (días de financiamiento sin intereses)
-  const creditCardPlans = useMemo(() => getCreditCardPlans(paymentMethods), [paymentMethods])
+  const creditCardPlans = useMemo(
+    () => getCreditCardPlans(paymentMethods, holidays),
+    [paymentMethods, holidays]
+  )
   const bestPlan = creditCardPlans[0] ?? null
+
+  const hasCreditCards = useMemo(
+    () => paymentMethods.some((method) => method.type === 'credit' && method.closing_day != null),
+    [paymentMethods]
+  )
+
+  // Próximos pagos reales: movimientos + MSI + recurrentes por tarjeta.
+  const upcomingCardPayments = useMemo(
+    () =>
+      getUpcomingCardPayments({
+        paymentMethods,
+        transactions,
+        recurringCharges,
+        holidays,
+      }),
+    [paymentMethods, transactions, recurringCharges, holidays]
+  )
 
   const periodTransactions = useMemo(
     () => transactions.filter((transaction) => isWithinPeriod(transaction.date, bounds)),
@@ -121,8 +149,8 @@ export default function DashboardScreen() {
           <MonthSelector onOpenPicker={openPeriodPicker} />
         </YStack>
         <XStack
-          width={46}
-          height={46}
+          width={CONTROL_HEIGHT}
+          height={CONTROL_HEIGHT}
           alignItems="center"
           justifyContent="center"
           borderRadius="$lg"
@@ -135,7 +163,7 @@ export default function DashboardScreen() {
           onPress={() => void refresh()}
           role="button"
           aria-label="Actualizar datos">
-          <AppIcon name="return-down-back" size={18} color={refreshing ? palette.primary : palette.muted} />
+          <AppIcon name="refresh" size={18} color={refreshing ? palette.primary : palette.muted} />
         </XStack>
       </XStack>
 
@@ -197,9 +225,12 @@ export default function DashboardScreen() {
         </XStack>
       </Card>
 
+      {/* Próximos pagos de tarjetas */}
+      {hasCreditCards ? <UpcomingPaymentsSection payments={upcomingCardPayments} /> : null}
+
       {/* Recomendación de tarjeta para hoy */}
       {bestPlan ? (
-        <Card backgroundColor={palette.primary + '12'} borderColor={palette.primary + '44'} gap="$md">
+        <Card backgroundColor="$card" borderColor={palette.primary + '33'} gap="$md">
           <XStack alignItems="center" gap="$md">
             <YStack
               width={44}
@@ -217,11 +248,15 @@ export default function DashboardScreen() {
               <Text fontSize={17} fontWeight="800" color="$text" numberOfLines={1}>
                 {bestPlan.method.name}
               </Text>
-              <Text fontSize={12} color="$tabIconDefault">
-                Corte {formatDateLabel(toISODate(bestPlan.closingDate))} · Pago{' '}
-                {formatDateLabel(toISODate(bestPlan.dueDate))}
-                {bestPlan.estimated ? ' (estimado)' : ''}
-              </Text>
+              <XStack alignItems="center" gap={8} flexWrap="wrap">
+                <Text fontSize={12} color="$tabIconDefault">
+                  Corte {formatDateLabel(toISODate(bestPlan.closingDate))}
+                </Text>
+                <Text fontSize={12} color="$tabIconDefault">
+                  Pago {formatDateLabel(toISODate(bestPlan.dueDate))}
+                  {bestPlan.estimated ? ' (estimado)' : ''}
+                </Text>
+              </XStack>
             </YStack>
             <YStack alignItems="flex-end">
               <Text fontSize={30} fontWeight="800" color="$primary">
@@ -252,7 +287,7 @@ export default function DashboardScreen() {
 
       {/* Gastos por categoría */}
       <XStack gap="$lg" alignItems="flex-start" flexWrap="wrap">
-        <YStack flex={2} minWidth={320} gap="$md">
+        <YStack flex={1.4} minWidth={320} gap="$md">
           <Text {...TYPO.section} color="$text">
             Gastos por categoría
           </Text>
@@ -291,10 +326,24 @@ export default function DashboardScreen() {
 
         {/* Movimientos recientes */}
         <YStack flex={1} minWidth={280} gap="$md">
-          <Text {...TYPO.section} color="$text">
-            Movimientos recientes
-          </Text>
-          <Card noPadding>
+          <XStack alignItems="center" justifyContent="space-between" gap="$sm">
+            <Text {...TYPO.section} color="$text">
+              Movimientos recientes
+            </Text>
+            <Text
+              fontSize={13}
+              fontWeight="700"
+              color="$primary"
+              cursor="pointer"
+              style={{ transition: CSS_TRANSITION }}
+              pressStyle={{ opacity: 0.7 }}
+              onPress={() => navigate('/movimientos')}
+              role="button"
+              aria-label="Ver todos los movimientos">
+              Ver todos
+            </Text>
+          </XStack>
+          <Card noPadding overflow="hidden">
             {recentTransactions.length === 0 ? (
               <EmptyState
                 icon="receipt-outline"
@@ -305,38 +354,115 @@ export default function DashboardScreen() {
                 }
               />
             ) : (
-              recentTransactions.map((transaction) => {
+              recentTransactions.map((transaction, index) => {
                 const isIncome = transaction.type === 'income'
+                const isPending = transaction.breakdown_status === 'pending'
                 const detail = transaction.details?.[0]
+                const categoryName = detail?.category?.name ?? (isIncome ? 'Ingreso' : 'Gasto')
+                const categoryColor =
+                  detail?.category?.color ?? (isIncome ? palette.income : palette.expense)
+                const rawMerchant = transaction.merchant?.trim() || null
+                const rawConcept = detail?.description?.trim() || null
+                const merchant = rawMerchant ? capitalizeLabel(rawMerchant) : null
+                const concept = rawConcept ? capitalizeLabel(rawConcept) : null
+                const title = merchant || concept || categoryName
+                const showConcept =
+                  !!concept &&
+                  (!merchant ||
+                    concept.toLocaleLowerCase('es-MX') !==
+                      merchant.toLocaleLowerCase('es-MX'))
+
                 return (
                   <XStack
                     key={transaction.id}
                     alignItems="center"
                     gap="$md"
-                    marginHorizontal="$xs"
-                    padding="$md"
-                    borderRadius="$md"
+                    paddingHorizontal="$md"
+                    paddingVertical={8}
+                    borderTopWidth={index === 0 ? 0 : 1}
+                    borderTopColor="$border"
                     cursor="pointer"
                     style={{ transition: CSS_TRANSITION }}
                     hoverStyle={{ backgroundColor: '$surfaceHover' }}
                     pressStyle={{ opacity: 0.8 }}
                     onPress={() => navigate(`/movimientos/${transaction.id}`)}
+                    tabIndex={0}
+                    focusVisibleStyle={{
+                      outlineWidth: 2,
+                      outlineColor: '$primary',
+                      outlineOffset: -2,
+                    }}
+                    onKeyDown={(event) => {
+                      const key = (event as unknown as { key?: string }).key
+                      if (key === 'Enter' || key === ' ') {
+                        event.preventDefault()
+                        navigate(`/movimientos/${transaction.id}`)
+                      }
+                    }}
                     role="button"
-                    aria-label={`Abrir movimiento ${transaction.merchant || 'registrado'}`}>
+                    aria-label={`Abrir movimiento ${title}`}>
                     <CategoryIcon
                       icon={detail?.category?.icon ?? (isIncome ? 'cash' : 'pricetag')}
-                      color={detail?.category?.color ?? (isIncome ? palette.income : palette.expense)}
-                      size={36}
+                      color={categoryColor}
+                      size={34}
                     />
-                    <YStack flex={1} minWidth={0}>
-                      <Text fontSize={14} fontWeight="700" color="$text" numberOfLines={1}>
-                        {transaction.merchant || detail?.description || detail?.category?.name || 'Movimiento'}
-                      </Text>
-                      <Text fontSize={12} color="$tabIconDefault">
-                        {formatDateLabel(transaction.date)}
-                      </Text>
+                    <YStack flex={1} minWidth={0} gap={2}>
+                      <XStack alignItems="baseline" gap={4} minWidth={0}>
+                        <Text
+                          fontSize={14}
+                          fontWeight="600"
+                          letterSpacing={-0.1}
+                          color="$text"
+                          numberOfLines={1}
+                          flexShrink={1}>
+                          {title}
+                        </Text>
+                        {showConcept ? (
+                          <Text
+                            fontSize={13}
+                            fontWeight="600"
+                            color="$textSecondary"
+                            numberOfLines={1}
+                            flexShrink={4}
+                            minWidth={0}>
+                            · {concept}
+                          </Text>
+                        ) : null}
+                      </XStack>
+                      <XStack alignItems="center" gap={6} flexWrap="wrap" minWidth={0}>
+                        <XStack
+                          paddingHorizontal={6}
+                          paddingVertical={1}
+                          borderRadius="$full"
+                          backgroundColor={categoryColor + '1A'}>
+                          <Text
+                            fontSize={10}
+                            fontWeight="600"
+                            color="$textSecondary"
+                            numberOfLines={1}>
+                            {categoryName}
+                          </Text>
+                        </XStack>
+                        <Text fontSize={11} color="$tabIconDefault">
+                          {formatDateLabel(transaction.date)}
+                        </Text>
+                        {isPending ? (
+                          <Text
+                            fontSize={9.5}
+                            fontWeight="800"
+                            textTransform="uppercase"
+                            letterSpacing={0.4}
+                            color="$warning">
+                            Pendiente
+                          </Text>
+                        ) : null}
+                      </XStack>
                     </YStack>
-                    <Text fontSize={14} fontWeight="800" color={isIncome ? '$income' : '$expense'}>
+                    <Text
+                      fontSize={14}
+                      fontWeight="800"
+                      color={isIncome ? '$income' : '$expense'}
+                      style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {isIncome ? '+' : '-'}
                       {formatCurrency(getTransactionDisplayAmount(transaction))}
                     </Text>
@@ -404,6 +530,174 @@ export default function DashboardScreen() {
       ) : null}
     </YStack>
   )
+}
+
+function UpcomingPaymentsSection({ payments }: { payments: UpcomingCardPayment[] }) {
+  const [next, ...rest] = payments
+
+  return (
+    <YStack gap="$md">
+      <Text {...TYPO.section} color="$text">
+        Próximos pagos de tarjetas
+      </Text>
+      {!next ? (
+        <Card>
+          <EmptyState
+            icon="card-outline"
+            text="No hay pagos de tarjetas pendientes en este momento."
+          />
+        </Card>
+      ) : (
+        <Card noPadding overflow="hidden">
+          <CardPaymentFeatured payment={next} />
+          {rest.map((payment) => (
+            <CardPaymentRow key={payment.card.id} payment={payment} />
+          ))}
+        </Card>
+      )}
+    </YStack>
+  )
+}
+
+function CardPaymentFeatured({ payment }: { payment: UpcomingCardPayment }) {
+  return (
+    <YStack gap="$md" padding="$lg" backgroundColor={palette.primary + '0A'}>
+      <XStack alignItems="flex-start" justifyContent="space-between" gap="$md">
+        <XStack alignItems="center" gap="$md" flex={1} minWidth={0}>
+          <YStack
+            width={42}
+            height={42}
+            borderRadius="$md"
+            alignItems="center"
+            justifyContent="center"
+            backgroundColor={palette.primary + '1A'}
+            flexShrink={0}>
+            <AppIcon name="card" size={21} color={palette.primary} />
+          </YStack>
+          <YStack flex={1} minWidth={0} gap={2}>
+            <Text
+              fontSize={10}
+              fontWeight="800"
+              textTransform="uppercase"
+              letterSpacing={0.7}
+              color="$primary">
+              Próximo pago
+            </Text>
+            <Text
+              fontSize={17}
+              fontWeight="800"
+              letterSpacing={-0.2}
+              color="$text"
+              numberOfLines={1}>
+              {payment.card.name}
+            </Text>
+          </YStack>
+        </XStack>
+
+        <YStack alignItems="flex-end" gap={2} flexShrink={0}>
+          <Text
+            fontSize={22}
+            $gtXs={{ fontSize: 24 }}
+            fontWeight="800"
+            letterSpacing={-0.4}
+            color="$expense"
+            style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {formatCurrency(payment.amount)}
+          </Text>
+          {isEstimatedPayment(payment) ? (
+            <Text
+              fontSize={9}
+              fontWeight="800"
+              textTransform="uppercase"
+              letterSpacing={0.4}
+              color="$warning">
+              Estimado
+            </Text>
+          ) : null}
+        </YStack>
+      </XStack>
+
+      <XStack alignItems="center" gap="$sm" flexWrap="wrap">
+        <XStack alignItems="center" gap={5}>
+          <AppIcon name="calendar-outline" size={13} color={palette.primary} />
+          <Text fontSize={12} fontWeight="700" color="$text">
+            Vence {formatDateLabel(toISODate(payment.period.dueDate))}
+          </Text>
+        </XStack>
+        <Text fontSize={11} color="$tabIconDefault">
+          · {formatDueHint(payment.daysUntilDue)}
+        </Text>
+        <Text fontSize={11} color="$tabIconDefault">
+          · Corte {formatDateLabel(toISODate(payment.period.closingDate))}
+        </Text>
+      </XStack>
+    </YStack>
+  )
+}
+
+function CardPaymentRow({ payment }: { payment: UpcomingCardPayment }) {
+  return (
+    <XStack
+      alignItems="center"
+      gap="$md"
+      paddingHorizontal="$lg"
+      paddingVertical="$md"
+      borderTopWidth={1}
+      borderTopColor="$border">
+      <YStack
+        width={32}
+        height={32}
+        borderRadius="$full"
+        alignItems="center"
+        justifyContent="center"
+        backgroundColor={palette.primary + '14'}
+        flexShrink={0}>
+        <AppIcon name="card" size={16} color={palette.primary} />
+      </YStack>
+
+      <YStack flex={1} minWidth={0} gap={2}>
+        <Text fontSize={14} fontWeight="600" color="$text" numberOfLines={1}>
+          {payment.card.name}
+        </Text>
+        <Text fontSize={11} color="$tabIconDefault" numberOfLines={1}>
+          Vence {formatDateLabel(toISODate(payment.period.dueDate))} ·{' '}
+          {formatDueHint(payment.daysUntilDue)}
+        </Text>
+      </YStack>
+
+      <YStack alignItems="flex-end" gap={1} flexShrink={0}>
+        <Text
+          fontSize={14}
+          fontWeight="800"
+          color="$expense"
+          style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {formatCurrency(payment.amount)}
+        </Text>
+        {isEstimatedPayment(payment) ? (
+          <Text
+            fontSize={9}
+            fontWeight="800"
+            textTransform="uppercase"
+            letterSpacing={0.4}
+            color="$warning">
+            Estimado
+          </Text>
+        ) : null}
+      </YStack>
+    </XStack>
+  )
+}
+
+/** true si el monto o la fecha del pago todavía son estimados. */
+const isEstimatedPayment = (payment: UpcomingCardPayment) =>
+  payment.pendingClosing || payment.estimatedDate
+
+/** Texto relativo corto para la fecha límite. */
+const formatDueHint = (days: number) => {
+  if (days < 0) return 'vencido'
+  if (days === 0) return 'hoy'
+  if (days === 1) return 'mañana'
+  return `en ${days} días`
 }
 
 function EmptyState({ icon, text }: { icon: string; text: string }) {

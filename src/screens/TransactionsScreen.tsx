@@ -3,14 +3,15 @@ import { useNavigate } from 'react-router-dom'
 import { Text, XStack, YStack } from 'tamagui'
 
 import { BorderedChip } from '@/components/ui/BorderedStack'
-import { CategoryIcon, Pill } from '@/components/ui/CategoryIcon'
+import { CategoryIcon } from '@/components/ui/CategoryIcon'
 import { TextInput } from '@/components/ui/Field'
 import { AppIcon } from '@/components/ui/Icon'
 import { MonthSelector } from '@/components/ui/MonthSelector'
 import { palette } from '@/constants/theme'
-import { CONTROL_HEIGHT, focusRing, shadow, CSS_TRANSITION, TYPO } from '@/constants/ui'
+import { CONTROL_HEIGHT, focusRing, CSS_TRANSITION, TYPO } from '@/constants/ui'
 import { useAuth } from '@/contexts/AuthContext'
 import { useFilters } from '@/contexts/FiltersContext'
+import { useHolidays } from '@/contexts/HolidaysContext'
 import { useModals } from '@/contexts/ModalsContext'
 import { isWithinPeriod, usePeriod } from '@/contexts/PeriodContext'
 import { useData } from '@/hooks/useData'
@@ -27,6 +28,7 @@ import {
   type CardPeriodGroup,
 } from '@/utils/paymentPeriods'
 import { getPaymentMethodIcon } from '@/utils/paymentMethod'
+import { capitalizeLabel, getUserInitials } from '@/utils/text'
 import { getUserDisplayName } from '@/utils/user'
 
 /** Fecha corta para rangos de ciclo: "16 oct" */
@@ -41,8 +43,9 @@ const formatShortDate = (date: Date) =>
 export default function TransactionsScreen() {
   const navigate = useNavigate()
   const { transactions, categories, paymentMethods, recurringCharges, loading } = useData()
+  const { holidays } = useHolidays()
   const { period, bounds, setAll } = usePeriod()
-  const { openFilters, openPeriodPicker, openTransactionForm, openBreakdown } = useModals()
+  const { openFilters, openPeriodPicker, openBreakdown } = useModals()
   const {
     typeFilter,
     setTypeFilter,
@@ -205,6 +208,7 @@ export default function TransactionsScreen() {
       bounds,
       includeTransaction: matchesNonDateFilters,
       includeRecurring: matchesRecurringFilters,
+      holidays,
       projectionMonths: RECURRING_PROJECTION_MONTHS,
     })
   }, [
@@ -215,6 +219,7 @@ export default function TransactionsScreen() {
     paymentMethods,
     period.mode,
     bounds,
+    holidays,
     matchesNonDateFilters,
     matchesRecurringFilters,
   ])
@@ -327,27 +332,6 @@ export default function TransactionsScreen() {
             </YStack>
           ) : null}
         </XStack>
-
-        <XStack
-          height={CONTROL_HEIGHT}
-          alignItems="center"
-          gap="$xs"
-          paddingHorizontal="$md"
-          borderRadius="$md"
-          backgroundColor="$primary"
-          cursor="pointer"
-          style={{ transition: CSS_TRANSITION }}
-          hoverStyle={{ opacity: 0.92 }}
-          pressStyle={{ opacity: 0.8 }}
-          {...shadow.soft}
-          onPress={() => openTransactionForm()}
-          role="button"
-          aria-label="Nuevo movimiento">
-          <AppIcon name="add" size={17} color="#FFFFFF" />
-          <Text fontSize={13} fontWeight="700" color="#FFFFFF">
-            Nuevo
-          </Text>
-        </XStack>
       </XStack>
 
       {/* Chips de filtros activos */}
@@ -427,7 +411,12 @@ export default function TransactionsScreen() {
             <AppIcon name="card-outline" size={13} color={palette.muted} />
             <Text fontSize={11} color="$tabIconDefault">
               {activeCreditCard.name} · Corte {activeCreditCard.closing_day}
-              {activeCreditCard.due_day ? ` · Pago ${activeCreditCard.due_day}` : ''}
+              {activeCreditCard.grace_days != null
+                ? ` · Pago ${activeCreditCard.grace_days} días ${activeCreditCard.grace_days_type === 'business'
+                  ? 'hábiles'
+                  : 'naturales'
+                }`
+                : ''}
             </Text>
           </XStack>
         </XStack>
@@ -497,43 +486,49 @@ export default function TransactionsScreen() {
             </Text>
           </YStack>
         ) : (
-        <YStack gap="$lg">
-          {periodGroups.map((group) => {
-            const collapsed = collapsedGroups.has(group.key)
-            return (
-              <YStack key={group.key} gap="$sm">
-                <PeriodHeader
-                  period={group.period}
-                  cardName={activeCreditCard?.name ?? 'Tarjeta'}
-                  count={group.transactions.length}
-                  projectedCount={group.installmentLines.length + group.recurringLines.length}
-                  total={group.total}
-                  showTotal={periodGroups.length > 1}
-                  collapsed={collapsed}
-                  onToggle={() => toggleGroup(group.key)}
-                />
-                {!collapsed ? (
-                  <YStack gap="$sm">
-                    {group.transactions.map((transaction) => (
-                      <TransactionRow
-                        key={transaction.id}
-                        transaction={transaction}
-                        onOpen={() => navigate(`/movimientos/${transaction.id}`)}
-                        onBreakdown={() => openBreakdown(transaction.id)}
+          <YStack gap="$lg">
+            {periodGroups.map((group) => {
+              const collapsed = collapsedGroups.has(group.key)
+              return (
+                <YStack
+                  key={group.key}
+                  borderRadius="$lg"
+                  borderWidth={1}
+                  borderColor="$border"
+                  backgroundColor="$card"
+                  overflow="hidden">
+                  <PeriodHeader
+                    period={group.period}
+                    cardName={activeCreditCard?.name ?? 'Tarjeta'}
+                    count={group.transactions.length}
+                    projectedCount={group.installmentLines.length + group.recurringLines.length}
+                    total={group.total}
+                    showTotal={periodGroups.length > 1}
+                    collapsed={collapsed}
+                    onToggle={() => toggleGroup(group.key)}
+                  />
+                  {!collapsed ? (
+                    <>
+                      {group.transactions.map((transaction) => (
+                        <TransactionRow
+                          key={transaction.id}
+                          transaction={transaction}
+                          onOpen={() => navigate(`/movimientos/${transaction.id}`)}
+                          onBreakdown={() => openBreakdown(transaction.id)}
+                        />
+                      ))}
+                      <ProjectedCharges
+                        installmentLines={group.installmentLines}
+                        recurringLines={group.recurringLines}
+                        total={group.projectedTotal}
+                        onOpenTransaction={(id) => navigate(`/movimientos/${id}`)}
                       />
-                    ))}
-                    <ProjectedCharges
-                      installmentLines={group.installmentLines}
-                      recurringLines={group.recurringLines}
-                      total={group.projectedTotal}
-                      onOpenTransaction={(id) => navigate(`/movimientos/${id}`)}
-                    />
-                  </YStack>
-                ) : null}
-              </YStack>
-            )
-          })}
-        </YStack>
+                    </>
+                  ) : null}
+                </YStack>
+              )
+            })}
+          </YStack>
         )
       ) : filtered.length === 0 ? (
         <YStack alignItems="center" gap="$md" paddingVertical="$xxl">
@@ -547,14 +542,21 @@ export default function TransactionsScreen() {
           {groups.map((group) => {
             const collapsed = collapsedGroups.has(group.key)
             return (
-              <YStack key={group.key} gap="$sm">
+              <YStack
+                key={group.key}
+                borderRadius="$lg"
+                borderWidth={1}
+                borderColor="$border"
+                backgroundColor="$card"
+                overflow="hidden">
                 {/* Cabecera de mes — discreta y colapsable */}
                 <XStack
                   alignItems="center"
                   justifyContent="space-between"
-                  paddingHorizontal="$sm"
-                  paddingVertical="$xs"
-                  borderRadius="$sm"
+                  gap="$md"
+                  paddingHorizontal="$md"
+                  paddingVertical="$sm"
+                  backgroundColor="$background"
                   cursor="pointer"
                   style={{ transition: CSS_TRANSITION }}
                   hoverStyle={{ backgroundColor: '$surfaceHover' }}
@@ -563,13 +565,13 @@ export default function TransactionsScreen() {
                   role="button"
                   aria-expanded={!collapsed}
                   aria-label={`${collapsed ? 'Expandir' : 'Contraer'} ${group.label}`}>
-                  <XStack alignItems="center" gap="$sm">
+                  <XStack alignItems="center" gap="$sm" minWidth={0}>
                     <AppIcon
                       name={collapsed ? 'chevron-forward' : 'chevron-down'}
                       size={14}
                       color={palette.muted}
                     />
-                    <Text {...TYPO.label} color="$tabIconDefault">
+                    <Text {...TYPO.label} color="$textSecondary" numberOfLines={1}>
                       {group.label}
                     </Text>
                     <Text fontSize={11} fontWeight="600" color="$tabIconDefault">
@@ -577,25 +579,27 @@ export default function TransactionsScreen() {
                     </Text>
                   </XStack>
                   {groups.length > 1 ? (
-                    <Text fontSize={12} fontWeight="700" color="$tabIconDefault">
+                    <Text
+                      fontSize={12}
+                      fontWeight="700"
+                      color="$tabIconDefault"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {group.total >= 0 ? '+' : ''}
                       {formatCurrency(group.total)}
                     </Text>
                   ) : null}
                 </XStack>
 
-                {!collapsed ? (
-                  <YStack gap="$sm">
-                    {group.transactions.map((transaction) => (
-                      <TransactionRow
-                        key={transaction.id}
-                        transaction={transaction}
-                        onOpen={() => navigate(`/movimientos/${transaction.id}`)}
-                        onBreakdown={() => openBreakdown(transaction.id)}
-                      />
-                    ))}
-                  </YStack>
-                ) : null}
+                {!collapsed
+                  ? group.transactions.map((transaction) => (
+                    <TransactionRow
+                      key={transaction.id}
+                      transaction={transaction}
+                      onOpen={() => navigate(`/movimientos/${transaction.id}`)}
+                      onBreakdown={() => openBreakdown(transaction.id)}
+                    />
+                  ))
+                  : null}
               </YStack>
             )
           })}
@@ -713,9 +717,9 @@ function PeriodHeader({
       alignItems="flex-start"
       justifyContent="space-between"
       gap="$md"
-      paddingHorizontal="$sm"
-      paddingVertical="$xs"
-      borderRadius="$sm"
+      paddingHorizontal="$md"
+      paddingVertical="$sm"
+      backgroundColor="$background"
       cursor="pointer"
       style={{ transition: CSS_TRANSITION }}
       hoverStyle={{ backgroundColor: '$surfaceHover' }}
@@ -731,7 +735,7 @@ function PeriodHeader({
           color={palette.muted}
         />
         <YStack flex={1} minWidth={0} gap={2}>
-          <Text {...TYPO.label} color="$tabIconDefault" numberOfLines={1}>
+          <Text {...TYPO.label} color="$textSecondary" numberOfLines={1}>
             {cardName} · Corte {closingLabel}
           </Text>
           <Text fontSize={11} color="$tabIconDefault" numberOfLines={1}>
@@ -745,7 +749,11 @@ function PeriodHeader({
         </YStack>
       </XStack>
       {showTotal ? (
-        <Text fontSize={12} fontWeight="700" color="$tabIconDefault">
+        <Text
+          fontSize={12}
+          fontWeight="700"
+          color="$tabIconDefault"
+          style={{ fontVariantNumeric: 'tabular-nums' }}>
           {total >= 0 ? '+' : ''}
           {formatCurrency(total)}
         </Text>
@@ -776,113 +784,267 @@ function TransactionRow({
   const categoryIcon = primaryDetail?.category?.icon ?? (isIncome ? 'cash' : 'pricetag')
   const categoryColor = primaryDetail?.category?.color ?? (isIncome ? palette.income : palette.expense)
   const categoryName = primaryDetail?.category?.name ?? (isIncome ? 'Ingreso' : 'Gasto')
-  const detailDescription = primaryDetail?.description
-  const merchantName = transaction.merchant
-  const title = merchantName || detailDescription || categoryName
+  const rawConcept = primaryDetail?.description?.trim() || null
+  const rawMerchant = transaction.merchant?.trim() || null
+  const concept = rawConcept ? capitalizeLabel(rawConcept) : null
+  const merchant = rawMerchant ? capitalizeLabel(rawMerchant) : null
+  const title = merchant || concept || categoryName
+  const showConcept =
+    !!concept &&
+    (!merchant ||
+      concept.toLocaleLowerCase('es-MX') !== merchant.toLocaleLowerCase('es-MX'))
+  const userName = getUserDisplayName(user)
 
   const details = transaction.details ?? []
   const hasMultipleDetails = details.length > 1
+  const showPendingAction = isPending && !isIncome
 
   return (
     <YStack
-      borderRadius="$xl"
-      overflow="hidden"
-      backgroundColor="$card"
-      borderWidth={1}
-      borderColor={isPending ? palette.warning + '38' : '$border'}
-      style={{ transition: CSS_TRANSITION }}
-      {...shadow.soft}>
-      {/* Fila principal: lo importante salta a la vista */}
+      borderTopWidth={1}
+      borderTopColor="$border"
+      borderLeftWidth={2}
+      borderLeftColor={showPendingAction ? palette.warning : 'transparent'}>
+      {/* Fila compacta: icono de categoría, título + metadatos y monto */}
       <XStack
         alignItems="center"
         gap="$md"
-        padding="$md"
+        paddingHorizontal="$md"
+        paddingVertical={9}
         cursor="pointer"
         style={{ transition: CSS_TRANSITION }}
         hoverStyle={{ backgroundColor: '$surfaceHover' }}
         pressStyle={{ opacity: 0.9 }}
         onPress={onOpen}
+        tabIndex={0}
+        focusVisibleStyle={{ outlineWidth: 2, outlineColor: '$primary', outlineOffset: -2 }}
+        onKeyDown={(event) => {
+          const key = (event as unknown as { key?: string }).key
+          if (key === 'Enter' || key === ' ') {
+            event.preventDefault()
+            onOpen()
+          }
+        }}
         role="button"
         aria-label={`Abrir movimiento ${title}`}>
-        <CategoryIcon icon={categoryIcon} color={categoryColor} size={42} />
+        <YStack display="none" $gtXs={{ display: 'flex' }} flexShrink={0}>
+          <CategoryIcon icon={categoryIcon} color={categoryColor} size={34} />
+        </YStack>
 
-        <YStack flex={1} minWidth={0} gap={4}>
-          <XStack alignItems="center" gap="$xs" minWidth={0}>
-            <Text {...TYPO.cardTitle} color="$text" numberOfLines={1} flexShrink={1}>
+        <YStack flex={1} minWidth={0} gap={6}>
+          <XStack alignItems="baseline" gap={4} minWidth={0}>
+            <Text
+              fontSize={14}
+              fontWeight="600"
+              letterSpacing={-0.1}
+              color="$text"
+              numberOfLines={1}
+              flexShrink={1}>
               {title}
             </Text>
+            {showConcept ? (
+              <Text
+                fontSize={13}
+                fontWeight="600"
+                color="$textSecondary"
+                numberOfLines={1}
+                flexShrink={4}
+                minWidth={0}>
+                · {concept}
+              </Text>
+            ) : null}
+            {showPendingAction && !showConcept ? (
+              <XStack
+                flexShrink={0}
+                alignSelf="center"
+                alignItems="center"
+                height={19}
+                paddingHorizontal={7}
+                borderRadius="$full"
+                backgroundColor="$warning12"
+                marginLeft={2}>
+                <Text
+                  fontSize={10}
+                  fontWeight="800"
+                  textTransform="uppercase"
+                  letterSpacing={0.5}
+                  color="$warning">
+                  Pendiente
+                </Text>
+              </XStack>
+            ) : null}
             {hasMultipleDetails ? (
-              <Text fontSize={11} fontWeight="600" color="$tabIconDefault">
+              <Text
+                display="none"
+                $gtXs={{ display: 'flex' }}
+                fontSize={10}
+                fontWeight="700"
+                color="$tabIconDefault"
+                flexShrink={0}>
                 +{details.length - 1}
               </Text>
             ) : null}
           </XStack>
 
-          <XStack alignItems="center" gap="$xs" flexWrap="wrap">
-            <CategoryTag icon={categoryIcon} color={categoryColor} label={categoryName} />
+          <XStack alignItems="center" gap={8} flexWrap="wrap" minWidth={0}>
+            <CategoryTag color={categoryColor} label={categoryName} />
             <Text fontSize={11} color="$tabIconDefault">
               {formatDateLabel(transaction.date)}
             </Text>
-            {isPending ? (
+            <XStack
+              alignItems="center"
+              gap={4}
+              paddingHorizontal={7}
+              paddingVertical={1}
+              borderRadius="$full"
+              backgroundColor="$background"
+              aria-label={`Registrado por ${userName}`}>
+              <AppIcon name="person-outline" size={11} color={palette.muted} />
               <Text
-                fontSize={10}
-                fontWeight="800"
-                textTransform="uppercase"
-                letterSpacing={0.5}
-                color="$warning">
-                Pendiente
+                display="none"
+                $gtXs={{ display: 'flex' }}
+                fontSize={11}
+                color="$tabIconDefault"
+                numberOfLines={1}>
+                {userName}
               </Text>
-            ) : null}
-            {isMSI ? (
               <Text
+                $gtXs={{ display: 'none' }}
+                fontSize={11}
+                fontWeight="600"
+                color="$tabIconDefault">
+                {getUserInitials(userName)}
+              </Text>
+            </XStack>
+            {isMSI ? (
+              <XStack
+                alignItems="center"
+                gap={4}
+                paddingHorizontal={6}
+                paddingVertical={1}
+                borderRadius="$full"
+                backgroundColor="$primaryLight"
+                flexShrink={0}>
+                <Text fontSize={10} fontWeight="800" letterSpacing={0.1} color="$primary">
+                  MSI 1/{transaction.installments_count}
+                </Text>
+                <Text fontSize={10} color="$tabIconDefault">
+                  de {formatCurrency(transaction.amount)}
+                </Text>
+              </XStack>
+            ) : null}
+            {showPendingAction && showConcept ? (
+              <Text
+                display="none"
+                $gtXs={{ display: 'flex' }}
                 fontSize={10}
                 fontWeight="800"
                 textTransform="uppercase"
                 letterSpacing={0.4}
-                color="$primary">
-                MSI 1/{transaction.installments_count} · de {formatCurrency(transaction.amount)}
+                color="$warning">
+                Pendiente
               </Text>
+            ) : null}
+            {showPendingAction ? (
+              <XStack
+                display="none"
+                $gtXs={{ display: 'flex' }}
+                alignItems="center"
+                gap={3}
+                height={20}
+                paddingHorizontal={7}
+                borderRadius="$full"
+                backgroundColor="$warning12"
+                cursor="pointer"
+                style={{ transition: CSS_TRANSITION }}
+                hoverStyle={{ opacity: 0.85 }}
+                pressStyle={{ opacity: 0.7 }}
+                onPress={(event) => {
+                  event.stopPropagation()
+                  onBreakdown()
+                }}
+                role="button"
+                aria-label="Desglosar ticket">
+                <AppIcon name="create-outline" size={11} color={palette.warning} />
+                <Text fontSize={10} fontWeight="800" color="$warning">
+                  Desglosar
+                </Text>
+              </XStack>
+            ) : null}
+            {hasMultipleDetails ? (
+              <XStack
+                alignItems="center"
+                gap={3}
+                cursor="pointer"
+                style={{ transition: CSS_TRANSITION }}
+                hoverStyle={{ opacity: 0.8 }}
+                pressStyle={{ opacity: 0.6 }}
+                onPress={(event) => {
+                  event.stopPropagation()
+                  setExpanded((value) => !value)
+                }}
+                role="button"
+                aria-expanded={expanded}
+                aria-label={expanded ? 'Ocultar desglose' : `Ver desglose (${details.length})`}>
+                <AppIcon
+                  name={expanded ? 'chevron-up' : 'chevron-down'}
+                  size={12}
+                  color={palette.muted}
+                />
+                <Text fontSize={11} fontWeight="600" color="$tabIconDefault">
+                  {expanded ? 'Ocultar desglose' : `Ver desglose (${details.length})`}
+                </Text>
+              </XStack>
             ) : null}
           </XStack>
         </YStack>
 
-        <YStack alignItems="flex-end" gap={3}>
-          <Text {...TYPO.amount} color={isIncome ? '$income' : '$expense'}>
+        <YStack alignItems="flex-end" gap={1} flexShrink={0}>
+          <Text
+            fontSize={14}
+            fontWeight="800"
+            letterSpacing={-0.1}
+            color={isIncome ? '$income' : '$expense'}
+            style={{ fontVariantNumeric: 'tabular-nums' }}>
             {isIncome ? '+' : '-'}
             {formatCurrency(displayAmount)}
           </Text>
           {paymentMethod ? (
-            <Text fontSize={11} color="$tabIconDefault" numberOfLines={1}>
+            <Text fontSize={10} color="$tabIconDefault" numberOfLines={1} maxWidth={130}>
               {paymentMethod.name}
             </Text>
           ) : null}
         </YStack>
-      </XStack>
 
-      {/* Meta: usuario que registró + acceso al desglose */}
-      <XStack alignItems="center" flexWrap="wrap" gap="$sm" paddingHorizontal="$md" paddingBottom="$md">
-        <Pill
-          component={<AppIcon name="person-outline" size={12} color="#8A8A8A" />}
-          label={getUserDisplayName(user)}
-        />
-        {hasMultipleDetails ? (
-          <XStack
-            alignItems="center"
-            gap={4}
-            cursor="pointer"
-            style={{ transition: CSS_TRANSITION }}
-            hoverStyle={{ opacity: 0.8 }}
-            pressStyle={{ opacity: 0.7 }}
-            onPress={() => setExpanded((value) => !value)}
-            role="button"
-            aria-expanded={expanded}
-            aria-label={expanded ? 'Ocultar desglose' : 'Ver desglose'}>
-            <AppIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={13} color="#8A8A8A" />
-            <Text fontSize={12} fontWeight="600" color="$tabIconDefault">
-              {expanded ? 'Ocultar desglose' : `Ver desglose (${details.length})`}
-            </Text>
-          </XStack>
-        ) : null}
+        {/* Columna fija móvil: lápiz de desglose o espacio para alinear importes */}
+        <YStack
+          display="flex"
+          $gtXs={{ display: 'none' }}
+          width={22}
+          height={22}
+          alignItems="center"
+          justifyContent="center"
+          flexShrink={0}>
+          {showPendingAction ? (
+            <XStack
+              width={22}
+              height={22}
+              alignItems="center"
+              justifyContent="center"
+              borderRadius="$sm"
+              cursor="pointer"
+              hoverStyle={{ backgroundColor: '$background' }}
+              pressStyle={{ opacity: 0.6 }}
+              onPress={(event) => {
+                event.stopPropagation()
+                onBreakdown()
+              }}
+              role="button"
+              aria-label="Desglosar ticket">
+              <AppIcon name="create-outline" size={13} color={palette.warning} />
+            </XStack>
+          ) : null}
+        </YStack>
       </XStack>
 
       {/* Desglose expandible con transición de altura */}
@@ -895,10 +1057,11 @@ function TransactionRow({
             transition: 'grid-template-rows 200ms ease',
           }}>
           <YStack style={{ overflow: 'hidden', minHeight: 0 }}>
-            <YStack paddingHorizontal="$md" paddingBottom="$md">
+            <YStack paddingHorizontal="$md" paddingTop="$sm" paddingBottom="$sm">
               <YStack
-                gap={2}
-                padding="$sm"
+                gap={1}
+                paddingHorizontal="$sm"
+                paddingVertical={6}
                 borderRadius="$md"
                 borderWidth={1}
                 borderColor="$border"
@@ -908,27 +1071,31 @@ function TransactionRow({
                     key={detail.id}
                     alignItems="center"
                     gap="$sm"
-                    paddingVertical="$xs"
+                    paddingVertical={5}
                     borderTopWidth={index === 0 ? 0 : 1}
                     borderTopColor="$border">
                     <CategoryIcon
                       icon={detail.category?.icon ?? 'pricetag'}
                       color={detail.category?.color ?? '#8A8A8A'}
-                      size={26}
+                      size={24}
                     />
                     <YStack flex={1} minWidth={0} gap={1}>
                       <Text fontSize={13} fontWeight="600" color="$text" numberOfLines={1}>
                         {detail.description || detail.category?.name || 'Ítem'}
                       </Text>
                       {detail.description &&
-                      detail.category?.name &&
-                      detail.description !== detail.category.name ? (
+                        detail.category?.name &&
+                        detail.description !== detail.category.name ? (
                         <Text fontSize={11} color="$tabIconDefault" numberOfLines={1}>
                           {detail.category.name}
                         </Text>
                       ) : null}
                     </YStack>
-                    <Text fontSize={13} fontWeight="700" color="$text">
+                    <Text
+                      fontSize={13}
+                      fontWeight="700"
+                      color="$text"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatCurrency(detail.quantity * detail.unit_price)}
                     </Text>
                   </XStack>
@@ -937,35 +1104,6 @@ function TransactionRow({
             </YStack>
           </YStack>
         </YStack>
-      ) : null}
-
-      {/* Acción clara para tickets pendientes de desglosar */}
-      {isPending && !isIncome ? (
-        <XStack
-          alignItems="center"
-          gap="$sm"
-          marginHorizontal="$md"
-          marginBottom="$md"
-          paddingHorizontal="$md"
-          paddingVertical="$sm"
-          borderRadius="$md"
-          backgroundColor="$warning12"
-          cursor="pointer"
-          style={{ transition: CSS_TRANSITION }}
-          hoverStyle={{ opacity: 0.9 }}
-          pressStyle={{ opacity: 0.8 }}
-          onPress={onBreakdown}
-          role="button"
-          aria-label="Desglosar ticket">
-          <AppIcon name="create-outline" size={16} color={palette.warning} />
-          <Text fontSize={12} fontWeight="700" color="$warning">
-            Desglosar ticket
-          </Text>
-          <YStack flex={1} />
-          <Text fontSize={11} color="$tabIconDefault">
-            {details.length > 1 ? `${details.length} ítems` : 'Pendiente'}
-          </Text>
-        </XStack>
       ) : null}
     </YStack>
   )
@@ -988,9 +1126,8 @@ function ProjectedCharges({
     <YStack
       gap="$sm"
       padding="$md"
-      borderRadius="$lg"
-      borderWidth={1}
-      borderColor={palette.primary + '2E'}
+      borderTopWidth={1}
+      borderTopColor={palette.primary + '2E'}
       backgroundColor={palette.primary + '08'}>
       <XStack alignItems="center" justifyContent="space-between" gap="$md">
         <XStack alignItems="center" gap="$xs">
@@ -1076,16 +1213,14 @@ function ProjectedCharges({
   )
 }
 
-function CategoryTag({ icon, color, label }: { icon: string; color: string; label: string }) {
+function CategoryTag({ color, label }: { color: string; label: string }) {
   return (
     <XStack
       alignItems="center"
-      gap={4}
-      paddingHorizontal={8}
-      paddingVertical={2}
+      paddingHorizontal={7}
+      paddingVertical={1}
       borderRadius="$full"
       backgroundColor={color + '1A'}>
-      <AppIcon name={icon} size={11} color={color} />
       <Text fontSize={11} fontWeight="600" color="$textSecondary" numberOfLines={1}>
         {label}
       </Text>

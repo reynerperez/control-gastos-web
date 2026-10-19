@@ -427,7 +427,14 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 600, deviceScaleFactor: 2, mobile: true })
   await send('Page.navigate', { url: `${BASE}/movimientos` })
   await waitFor('pantalla de movimientos', `!!document.querySelector('input[placeholder^="Buscar por comercio"]')`)
-  await clickElement(byAriaLabel('Nuevo movimiento'))
+  await waitFor(
+    'botón de alta habilitado',
+    `(() => {
+      const el = [...document.querySelectorAll('[aria-label]')].find((n) => n.getAttribute('aria-label') === '+ Nuevo movimiento')
+      return !!el && el.getAttribute('aria-disabled') !== 'true'
+    })()`
+  )
+  await clickElement(byAriaLabel('+ Nuevo movimiento'))
   await waitFor('modal de alta', `!!document.querySelector('[role="dialog"]')`)
   check(
     'Modal: cabe en viewport bajo y el panel recibe los clics',

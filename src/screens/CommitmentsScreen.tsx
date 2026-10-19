@@ -9,6 +9,7 @@ import { AppIcon } from '@/components/ui/Icon'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { palette } from '@/constants/theme'
 import { CSS_TRANSITION, TYPO } from '@/constants/ui'
+import { useHolidays } from '@/contexts/HolidaysContext'
 import { useModals } from '@/contexts/ModalsContext'
 import { useData } from '@/hooks/useData'
 import { PaymentMethod, Transaction } from '@/types'
@@ -51,6 +52,7 @@ function resolveMethod(
 export default function CommitmentsScreen() {
   const navigate = useNavigate()
   const { transactions, recurringCharges, paymentMethods, loading } = useData()
+  const { holidays } = useHolidays()
   const { openTransactionForm, openRecurringCharge } = useModals()
   const [tab, setTab] = useState<Tab>('msi')
 
@@ -58,7 +60,12 @@ export default function CommitmentsScreen() {
     return transactions
       .filter(isInstallmentTransaction)
       .map((transaction) =>
-        getInstallmentPlan(transaction, resolveMethod(transaction, paymentMethods))
+        getInstallmentPlan(
+          transaction,
+          resolveMethod(transaction, paymentMethods),
+          new Date(),
+          holidays
+        )
       )
       .filter((plan): plan is InstallmentPlan => !!plan)
       .sort((a, b) => {
@@ -67,7 +74,7 @@ export default function CommitmentsScreen() {
         const bDue = b.nextInstallment?.dueDate.getTime() ?? Number.MAX_SAFE_INTEGER
         return aDue - bDue
       })
-  }, [transactions, paymentMethods])
+  }, [transactions, paymentMethods, holidays])
 
   const activePlans = plans.filter((plan) => !plan.settled)
   const activeRecurring = recurringCharges.filter((charge) => charge.active)
@@ -103,7 +110,7 @@ export default function CommitmentsScreen() {
         charge.payment_method ??
         paymentMethods.find((entry) => entry.id === charge.payment_method_id) ??
         null
-      const occurrence = getNextRecurringOccurrence(charge, method)
+      const occurrence = getNextRecurringOccurrence(charge, method, new Date(), holidays)
       if (!occurrence) continue
       candidates.push({
         date: occurrence.dueDate,
@@ -113,7 +120,7 @@ export default function CommitmentsScreen() {
     }
     candidates.sort((a, b) => a.date.getTime() - b.date.getTime())
     return candidates[0] ?? null
-  }, [activePlans, activeRecurring, paymentMethods])
+  }, [activePlans, activeRecurring, paymentMethods, holidays])
 
   return (
     <YStack gap="$lg">
@@ -433,6 +440,7 @@ function RecurringSection({
   onCreate: () => void
 }) {
   const { recurringCharges, paymentMethods, updateRecurringCharge } = useData()
+  const { holidays } = useHolidays()
 
   if (recurringCharges.length === 0) {
     return (
@@ -458,7 +466,7 @@ function RecurringSection({
         const method = charge.payment_method ??
           paymentMethods.find((entry) => entry.id === charge.payment_method_id) ??
           null
-        const occurrence = getNextRecurringOccurrence(charge, method)
+        const occurrence = getNextRecurringOccurrence(charge, method, new Date(), holidays)
         const isCredit = method?.type === 'credit'
         return (
           <Card key={charge.id} gap="$md" opacity={charge.active ? 1 : 0.55}>

@@ -1,6 +1,8 @@
 export type TransactionType = 'income' | 'expense';
 export type BreakdownStatus = 'pending' | 'completed';
 export type PaymentMethodType = 'debit' | 'credit' | 'cash';
+/** Cómo se cuentan los días de gracia de una tarjeta. */
+export type GraceDaysType = 'natural' | 'business';
 
 /**
  * Cómo se liquidó una compra:
@@ -29,7 +31,21 @@ export interface PaymentMethod {
   name: string;
   type: PaymentMethodType;
   closing_day: number | null;
-  due_day: number | null;
+  /** A nombre de quién está la tarjeta */
+  cardholder_name?: string | null;
+  /** Días de gracia desde el corte */
+  grace_days?: number | null;
+  grace_days_type?: GraceDaysType;
+  created_at: string;
+}
+
+/** Día inhábil bancario global (calendario CNBV). */
+export interface Holiday {
+  id: string;
+  country_code: string;
+  holiday_date: string; // YYYY-MM-DD
+  name: string;
+  source: string;
   created_at: string;
 }
 

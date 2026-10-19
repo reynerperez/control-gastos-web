@@ -1,27 +1,33 @@
 import { PaymentMethod } from '@/types'
+
+import {
+  DEFAULT_GRACE_DAYS,
+  EMPTY_HOLIDAYS,
+  clampDay,
+  daysBetween,
+  parseISODate,
+  resolveDueDate,
+  startOfDay,
+  type GraceDaysType,
+  type HolidaySet,
+} from '@/utils/bankingDates'
 import { toISODate } from '@/utils/format'
 
 /**
  * creditCardRecommendation.ts
  *
  * Recomendador de tarjetas de crédito para maximizar los días de
- * financiamiento sin intereses. Usa los datos reales del modelo:
- *   - `closing_day`: día de corte del mes.
- *   - `due_day`: día límite de pago del mes.
+ * financiamiento sin intereses.
  *
- * Reglas:
- *   1. Próximo corte: si hoy ya pasó el día de corte, el corte es el del mes
- *      siguiente; si no, el de este mes.
- *   2. Fecha límite: la siguiente ocurrencia de `due_day` posterior al corte
- *      (si `due_day` < `closing_day`, cae en el mes siguiente).
- *   3. Días de financiamiento: diferencia en días entre la fecha límite y hoy.
+ * Modelo:
+ *   - `closing_day`: día de corte del mes (no se mueve).
+ *   - `grace_days` + `grace_days_type`: días naturales o hábiles hasta el pago.
  *
- * Si una tarjeta de crédito no tiene `due_day`, se estima con
- * DEFAULT_GRACE_DAYS (20 días después del corte) y se marca `estimated`.
+ * La fecha límite se calcula con `resolveDueDate`. Si cae en sábado, domingo
+ * o día bancario inhábil, se mueve al siguiente día hábil.
  */
 
-/** Plazo por defecto cuando la tarjeta no tiene `due_day` configurado */
-export const DEFAULT_GRACE_DAYS = 20
+export { DEFAULT_GRACE_DAYS }
 
 export type CreditCardPlan = {
   method: PaymentMethod
@@ -31,25 +37,16 @@ export type CreditCardPlan = {
   dueDate: Date
   /** Días desde hoy hasta la fecha límite */
   financingDays: number
-  /** true si la fecha límite se estimó (la tarjeta no tiene `due_day`) */
+  /** true si la fecha límite usó la configuración por defecto */
   estimated: boolean
+  /** Días de gracia configurados */
+  graceDays: number
+  graceDaysType: GraceDaysType
+  /** true si la fecha se movió por caer en inhábil */
+  adjusted: boolean
 }
 
-const clampDay = (year: number, month: number, day: number) => {
-  const lastDay = new Date(year, month + 1, 0).getDate()
-  return Math.min(Math.max(day, 1), lastDay)
-}
-
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
-
-/** Diferencia en días (solo fecha) entre dos instantes, evitando DST */
-const daysBetween = (from: Date, to: Date) => {
-  const fromUTC = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())
-  const toUTC = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate())
-  return Math.round((toUTC - fromUTC) / 86_400_000)
-}
-
-/** Próxima fecha de corte a partir de hoy */
+/** Próxima fecha de corte a partir de hoy. */
 export function nextClosingDate(today: Date, closingDay: number): Date {
   const year = today.getFullYear()
   const month = today.getMonth()
@@ -61,24 +58,16 @@ export function nextClosingDate(today: Date, closingDay: number): Date {
   return thisMonth
 }
 
-/** Fecha límite de pago: siguiente `dueDay` posterior al corte */
+/**
+ * Fecha límite de pago: corte + días de gracia.
+ * El ajuste a día hábil está incluido.
+ */
 export function nextDueDate(
   closingDate: Date,
-  dueDay: number | null
-): { dueDate: Date; estimated: boolean } {
-  if (dueDay == null) {
-    const dueDate = new Date(closingDate)
-    dueDate.setDate(dueDate.getDate() + DEFAULT_GRACE_DAYS)
-    return { dueDate, estimated: true }
-  }
-  const year = closingDate.getFullYear()
-  const month = closingDate.getMonth()
-  const sameMonth = new Date(year, month, clampDay(year, month, dueDay))
-  if (sameMonth.getTime() > closingDate.getTime()) {
-    return { dueDate: sameMonth, estimated: false }
-  }
-  const nextMonth = month + 1
-  return { dueDate: new Date(year, nextMonth, clampDay(year, nextMonth, dueDay)), estimated: false }
+  method: Pick<PaymentMethod, 'grace_days' | 'grace_days_type'>,
+  holidays: HolidaySet = EMPTY_HOLIDAYS
+) {
+  return resolveDueDate(closingDate, method, holidays)
 }
 
 /**
@@ -87,6 +76,7 @@ export function nextDueDate(
  */
 export function getCreditCardPlans(
   paymentMethods: PaymentMethod[],
+  holidays: HolidaySet = EMPTY_HOLIDAYS,
   today: Date = new Date()
 ): CreditCardPlan[] {
   const reference = startOfDay(today)
@@ -94,24 +84,28 @@ export function getCreditCardPlans(
     .filter((method) => method.type === 'credit' && method.closing_day != null)
     .map((method) => {
       const closingDate = nextClosingDate(reference, method.closing_day as number)
-      const { dueDate, estimated } = nextDueDate(closingDate, method.due_day)
+      const due = nextDueDate(closingDate, method, holidays)
       return {
         method,
         closingDate,
-        dueDate,
-        financingDays: daysBetween(reference, dueDate),
-        estimated,
+        dueDate: due.dueDate,
+        financingDays: daysBetween(reference, due.dueDate),
+        estimated: due.estimated,
+        graceDays: due.graceDays,
+        graceDaysType: due.graceDaysType,
+        adjusted: due.adjusted,
       }
     })
     .sort((a, b) => b.financingDays - a.financingDays)
 }
 
-/** Tarjeta recomendada (la de mayor financiamiento) o null si no hay */
+/** Tarjeta recomendada (la de mayor financiamiento) o null si no hay. */
 export function getBestCreditCard(
   paymentMethods: PaymentMethod[],
+  holidays: HolidaySet = EMPTY_HOLIDAYS,
   today: Date = new Date()
 ): CreditCardPlan | null {
-  return getCreditCardPlans(paymentMethods, today)[0] ?? null
+  return getCreditCardPlans(paymentMethods, holidays, today)[0] ?? null
 }
 
 /**
@@ -130,25 +124,24 @@ export type StatementPeriod = {
   closingDate: Date
   /** Fecha límite de pago */
   dueDate: Date
-  /** true si la fecha de pago se estimó (sin `due_day`) */
+  /** true si la fecha de pago usó la configuración por defecto */
   estimated: boolean
+  graceDays?: number
+  graceDaysType?: GraceDaysType
+  adjusted?: boolean
 }
 
 export function getStatementPeriod(
   dateISO: string,
-  method: PaymentMethod
+  method: PaymentMethod,
+  holidays: HolidaySet = EMPTY_HOLIDAYS
 ): StatementPeriod | null {
   if (method.type !== 'credit' || method.closing_day == null) return null
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateISO)
-  if (!match) return null
-  const year = Number(match[1])
-  const month = Number(match[2]) - 1
-  const day = Number(match[3])
-  const date = new Date(year, month, day)
-  if (Number.isNaN(date.getTime())) return null
+  const date = parseISODate(dateISO)
+  if (!date) return null
 
   const closingDate = nextClosingDate(date, method.closing_day)
-  const { dueDate, estimated } = nextDueDate(closingDate, method.due_day)
+  const due = nextDueDate(closingDate, method, holidays)
 
   // Inicio del ciclo: día siguiente al corte del mes anterior
   const previousYear = closingDate.getFullYear()
@@ -165,7 +158,10 @@ export function getStatementPeriod(
     key: toISODate(closingDate),
     startDate,
     closingDate,
-    dueDate,
-    estimated,
+    dueDate: due.dueDate,
+    estimated: due.estimated,
+    graceDays: due.graceDays,
+    graceDaysType: due.graceDaysType,
+    adjusted: due.adjusted,
   }
 }

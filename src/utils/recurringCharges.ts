@@ -1,5 +1,6 @@
 import { PaymentMethod, RecurringCharge } from '@/types'
 
+import { EMPTY_HOLIDAYS, type HolidaySet } from '@/utils/bankingDates'
 import { getStatementPeriod, type StatementPeriod } from '@/utils/creditCardRecommendation'
 import { toISODate } from '@/utils/format'
 
@@ -60,7 +61,8 @@ export function getRecurringOccurrences(
   charge: RecurringCharge,
   method: PaymentMethod | null | undefined,
   fromISO: string,
-  toISO: string
+  toISO: string,
+  holidays: HolidaySet = EMPTY_HOLIDAYS
 ): RecurringOccurrence[] {
   if (!charge.active) return []
   const from = parseISO(fromISO)
@@ -92,7 +94,11 @@ export function getRecurringOccurrences(
 
       if (afterStart && beforeEnd) {
         if (isCredit) {
-          const period = getStatementPeriod(chargeISO, method as PaymentMethod)
+          const period = getStatementPeriod(
+            chargeISO,
+            method as PaymentMethod,
+            holidays
+          )
           if (period) {
             const dueISO = toISODate(period.dueDate)
             if (isWithinISO(dueISO, fromISO, toISO)) {
@@ -139,7 +145,8 @@ export function getRecurringMonthlyAmount(charge: RecurringCharge): number {
 export function getNextRecurringOccurrence(
   charge: RecurringCharge,
   method: PaymentMethod | null | undefined,
-  today: Date = new Date()
+  today: Date = new Date(),
+  holidays: HolidaySet = EMPTY_HOLIDAYS
 ): RecurringOccurrence | null {
   if (!charge.active) return null
   const start = today
@@ -148,7 +155,8 @@ export function getNextRecurringOccurrence(
     charge,
     method,
     toISODate(start),
-    toISODate(end)
+    toISODate(end),
+    holidays
   )
   return occurrences[0] ?? null
 }

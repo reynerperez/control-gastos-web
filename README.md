@@ -17,6 +17,7 @@ Versión **web** del control de gastos personal. Se conecta a la **misma base de
 | Dashboard: balance, ingresos/gastos, dona por categoría, presupuestos, recomendación de tarjeta con días de financiamiento | `/` (Resumen) + movimientos recientes |
 | Movimientos: búsqueda, filtros (tipo, categorías, método de pago, pendientes), totales y agrupación colapsable por mes o por periodo de facturación (con una sola tarjeta de crédito filtrada) | `/movimientos` |
 | Alta / edición de movimiento (comercio, concepto, monto, categoría, requiere desglose, fecha, nota) + recomendador de tarjeta | Modal «Nuevo movimiento» |
+| Fecha de pago de tarjetas calculada con días de gracia naturales o hábiles y calendario bancario CNBV | Ajustes → Métodos de pago |
 | Compras a Meses Sin Intereses: parcialidad mensual derivada, sin duplicar filas | Check «Comprar a meses sin intereses» en el alta |
 | Compromisos recurrentes (servicios, renta, suscripciones) y saldos MSI | `/compromisos` (pestañas MSI / Recurrentes) |
 | Proyección de MSI y servicios en la fecha límite de pago de cada tarjeta | Acordeón de «Periodos» en Movimientos |
@@ -67,8 +68,34 @@ anterior) y los totales no quedan incompletos.
 - Los filtros de categoría, búsqueda, tipo y pendientes también se aplican a las
   proyecciones.
 
-Migración: `supabase/migrations/20261019163800_msi_recurring_charges.sql`. La web es la
-fuente principal del esquema; el móvil consume la misma base de datos.
+### Fechas de pago de tarjetas
+
+La fecha límite **no se guarda**: se calcula a partir del corte y de los días de gracia.
+
+| Dato | Significado |
+| --- | --- |
+| `closing_day` | Día de corte. Nunca se mueve. |
+| `grace_days` | Días entre el corte y el pago (0–60). |
+| `grace_days_type` | `natural` o `business` (días hábiles bancarios). |
+| `cardholder_name` | Titular de la tarjeta. |
+| `due_day` | **Eliminado**. La fecha de pago no se guarda. |
+
+Reglas del motor (`src/utils/bankingDates.ts`):
+
+- Días hábiles = lunes a viernes, excluyendo fines de semana y días inhábiles bancarios.
+- Los días inhábiles se leen de la tabla global `holidays` (calendario CNBV, México).
+- Si la fecha calculada cae en inhábil, se mueve al siguiente día hábil.
+- No se ajusta el corte ni se suman días por zona horaria.
+
+El seed incluye 2024–2035; 2026 usa el calendario oficial de la CNBV y los demás años se
+generan con las mismas reglas. Se pueden agregar cierres extraordinarios manualmente en
+`holidays`.
+
+Migraciones: `supabase/migrations/20261019163800_msi_recurring_charges.sql`,
+`20261019184444_card_grace_days_holidays.sql` y
+`20261019190000_seed_holidays_2031_2035.sql`. La segunda agrega los días de gracia, crea
+el calendario CNBV y elimina `due_day` después del backfill. La web es la fuente principal
+del esquema; el móvil consume la misma base de datos.
 
 ```bash
 supabase db push        # aplica las migraciones al proyecto vinculado
@@ -156,6 +183,7 @@ sed -e 's/^EXPO_PUBLIC_SUPABASE_URL=/VITE_SUPABASE_URL=/' \
 | `npm run build` | Typecheck (`tsc -b`) + build de producción en `dist/` |
 | `npm run typecheck` | Solo typecheck |
 | `npm run preview` | Sirve `dist/` para probar el build |
+| `npm run test` | Tests de fechas bancarias, periodos y proyecciones (Vitest) |
 | `npm run smoke` | Prueba de humo en Chrome real: login, shell, las 4 pantallas, modales y layout móvil |
 | `npm run lint` | oxlint |
 
@@ -175,14 +203,17 @@ src/
                            # MonthSelector, DonutChart, ProgressBar
     modals/                # TransactionForm, Breakdown, Filters, PeriodPicker,
                            # RecurringChargeForm
-  contexts/                # AuthContext, PeriodContext, FiltersContext, ModalsContext
+  contexts/                # AuthContext, PeriodContext, FiltersContext, ModalsContext,
+                           # HolidaysContext (calendario CNBV)
   hooks/useData.tsx        # CRUD contra Supabase (categorías, métodos de pago,
                            # movimientos, desglose, presupuestos, compromisos)
   screens/                 # Login, Signup, Dashboard, Transactions, Detail,
                            # Commitments, Budgets, Settings + Categories/PaymentMethods
   utils/                   # supabase, format, location, paymentMethod, user,
+                           # bankingDates (días hábiles/CNBV),
                            # creditCardRecommendation (días de financiamiento),
-                           # installments (MSI), recurringCharges, paymentPeriods
+                           # installments (MSI), recurringCharges, paymentPeriods,
+                           # *.test.ts (Vitest)
   constants/theme.ts       # paleta derivada de tamagui.config.ts
 scripts/smoke.mjs          # prueba de humo con Chrome DevTools Protocol
 wrangler.jsonc             # deploy Cloudflare + fallback SPA

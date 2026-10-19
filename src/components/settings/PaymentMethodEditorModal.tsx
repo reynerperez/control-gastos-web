@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
 import { Button } from '@/components/ui/Button'
@@ -6,9 +6,14 @@ import { FormError, SectionLabel, TextInput } from '@/components/ui/Field'
 import { AppIcon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { palette } from '@/constants/theme'
+import { CSS_TRANSITION } from '@/constants/ui'
 import { PAYMENT_TYPE_OPTIONS } from '@/constants/settings'
+import { useHolidays } from '@/contexts/HolidaysContext'
 import { useData } from '@/hooks/useData'
-import { PaymentMethod, PaymentMethodType } from '@/types'
+import { GraceDaysType, PaymentMethod, PaymentMethodType } from '@/types'
+import { resolveDueDate } from '@/utils/bankingDates'
+import { nextClosingDate } from '@/utils/creditCardRecommendation'
+import { formatDateLabel, toISODate } from '@/utils/format'
 import { getPaymentMethodIcon } from '@/utils/paymentMethod'
 
 const typeColor = (type: PaymentMethodType) =>
@@ -16,7 +21,8 @@ const typeColor = (type: PaymentMethodType) =>
 
 /**
  * PaymentMethodEditorModal — alta/edición/borrado de un método de pago.
- * Se monta con `key` desde la pantalla para inicializar bien el estado.
+ *
+ * La fecha de pago no se guarda: se deriva del corte + días de gracia.
  */
 export function PaymentMethodEditorModal({
   editing,
@@ -26,28 +32,64 @@ export function PaymentMethodEditorModal({
   onClose: () => void
 }) {
   const { addPaymentMethod, updatePaymentMethod, deletePaymentMethod } = useData()
+  const { holidays } = useHolidays()
 
   const [name, setName] = useState(editing?.name ?? '')
   const [type, setType] = useState<PaymentMethodType>(editing?.type ?? 'cash')
-  const [closingDay, setClosingDay] = useState(editing?.closing_day ? String(editing.closing_day) : '')
-  const [dueDay, setDueDay] = useState(editing?.due_day ? String(editing.due_day) : '')
+  const [cardholderName, setCardholderName] = useState(editing?.cardholder_name ?? '')
+  const [closingDay, setClosingDay] = useState(
+    editing?.closing_day ? String(editing.closing_day) : ''
+  )
+  const [graceDays, setGraceDays] = useState(
+    String(editing?.grace_days ?? 20)
+  )
+  const [graceType, setGraceType] = useState<GraceDaysType>(
+    editing?.grace_days_type === 'business' ? 'business' : 'natural'
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const parsedClosing = closingDay ? parseInt(closingDay, 10) : null
+  const parsedGrace = graceDays ? parseInt(graceDays, 10) : null
+
+  const preview = useMemo(() => {
+    if (
+      type !== 'credit' ||
+      !parsedClosing ||
+      parsedClosing < 1 ||
+      parsedClosing > 31
+    ) {
+      return null
+    }
+    const closingDate = nextClosingDate(new Date(), parsedClosing)
+    return resolveDueDate(
+      closingDate,
+      {
+        grace_days: parsedGrace,
+        grace_days_type: graceType,
+      },
+      holidays
+    )
+  }, [type, parsedClosing, parsedGrace, graceType, holidays])
 
   const onSave = async () => {
     if (!name.trim()) {
       setError('Escribe un nombre para el método de pago.')
       return
     }
-    const parsedClosing = closingDay ? parseInt(closingDay, 10) : null
-    const parsedDue = dueDay ? parseInt(dueDay, 10) : null
     if (parsedClosing !== null && (parsedClosing < 1 || parsedClosing > 31)) {
       setError('El día de corte debe estar entre 1 y 31.')
       return
     }
-    if (parsedDue !== null && (parsedDue < 1 || parsedDue > 31)) {
-      setError('El día límite de pago debe estar entre 1 y 31.')
-      return
+    if (type === 'credit') {
+      if (!parsedClosing) {
+        setError('Configura el día de corte de la tarjeta.')
+        return
+      }
+      if (parsedGrace === null || parsedGrace < 0 || parsedGrace > 60) {
+        setError('Los días de gracia deben estar entre 0 y 60.')
+        return
+      }
     }
 
     setSaving(true)
@@ -56,8 +98,11 @@ export function PaymentMethodEditorModal({
       const payload = {
         name: name.trim(),
         type,
+        cardholder_name:
+          type === 'cash' ? null : cardholderName.trim() || null,
         closing_day: type === 'credit' ? parsedClosing : null,
-        due_day: type === 'credit' ? parsedDue : null,
+        grace_days: type === 'credit' ? parsedGrace ?? 20 : 20,
+        grace_days_type: type === 'credit' ? graceType : ('natural' as const),
       }
       if (editing) {
         await updatePaymentMethod(editing.id, payload)
@@ -90,7 +135,7 @@ export function PaymentMethodEditorModal({
       open
       onClose={onClose}
       title={editing ? 'Editar método de pago' : 'Nuevo método de pago'}
-      width={520}
+      width={560}
       footer={
         <XStack gap="$md">
           {editing ? (
@@ -133,7 +178,9 @@ export function PaymentMethodEditorModal({
                   setType(option.key)
                   if (option.key !== 'credit') {
                     setClosingDay('')
-                    setDueDay('')
+                  }
+                  if (option.key === 'cash') {
+                    setCardholderName('')
                   }
                 }}>
                 <AppIcon name={getPaymentMethodIcon(option.key)} size={16} color={active ? color : palette.muted} />
@@ -146,29 +193,108 @@ export function PaymentMethodEditorModal({
         </XStack>
       </YStack>
 
+      {type !== 'cash' ? (
+        <YStack gap="$sm">
+          <SectionLabel hint="Opcional">A nombre de</SectionLabel>
+          <TextInput
+            value={cardholderName}
+            onChangeText={setCardholderName}
+            placeholder="Ej. Reyner Pérez"
+            aria-label="Nombre del titular de la tarjeta"
+          />
+        </YStack>
+      ) : null}
+
       {type === 'credit' ? (
-        <XStack gap="$md">
-          <YStack flex={1} gap="$sm">
-            <SectionLabel>Día de corte</SectionLabel>
-            <TextInput
-              value={closingDay}
-              onChangeText={setClosingDay}
-              placeholder="15"
-              inputMode="numeric"
-              aria-label="Día de corte"
-            />
+        <>
+          <XStack gap="$md" flexWrap="wrap">
+            <YStack flex={1} minWidth={140} gap="$sm">
+              <SectionLabel>Día de corte</SectionLabel>
+              <TextInput
+                value={closingDay}
+                onChangeText={setClosingDay}
+                placeholder="15"
+                inputMode="numeric"
+                aria-label="Día de corte"
+              />
+            </YStack>
+            <YStack flex={1} minWidth={140} gap="$sm">
+              <SectionLabel>Días de gracia</SectionLabel>
+              <TextInput
+                value={graceDays}
+                onChangeText={setGraceDays}
+                placeholder="20"
+                inputMode="numeric"
+                aria-label="Días de gracia"
+              />
+            </YStack>
+          </XStack>
+
+          <YStack gap="$sm">
+            <SectionLabel>Tipo de días</SectionLabel>
+            <XStack gap="$sm">
+              {(
+                [
+                  { key: 'natural' as const, label: 'Naturales' },
+                  { key: 'business' as const, label: 'Hábiles' },
+                ]
+              ).map((option) => {
+                const active = graceType === option.key
+                return (
+                  <XStack
+                    key={option.key}
+                    flex={1}
+                    height={40}
+                    alignItems="center"
+                    justifyContent="center"
+                    borderRadius="$md"
+                    borderWidth={1}
+                    borderColor={active ? palette.primary : palette.borderStrong}
+                    backgroundColor={active ? palette.primary + '18' : '$card'}
+                    cursor="pointer"
+                    pressStyle={{ opacity: 0.75 }}
+                    style={{ transition: CSS_TRANSITION }}
+                    onPress={() => setGraceType(option.key)}
+                    role="button"
+                    aria-label={`Días ${option.label}`}
+                    aria-pressed={active}>
+                    <Text
+                      fontSize={13}
+                      fontWeight="700"
+                      color={active ? '$primary' : '$tabIconDefault'}>
+                      {option.label}
+                    </Text>
+                  </XStack>
+                )
+              })}
+            </XStack>
           </YStack>
-          <YStack flex={1} gap="$sm">
-            <SectionLabel>Día límite de pago</SectionLabel>
-            <TextInput
-              value={dueDay}
-              onChangeText={setDueDay}
-              placeholder="5"
-              inputMode="numeric"
-              aria-label="Día límite de pago"
-            />
+
+          <YStack
+            gap={4}
+            padding="$md"
+            borderRadius="$md"
+            backgroundColor={palette.primary + '0F'}
+            borderWidth={1}
+            borderColor={palette.primary + '33'}>
+            <XStack alignItems="center" gap="$xs">
+              <AppIcon name="calendar-outline" size={15} color={palette.primary} />
+              <Text fontSize={12} fontWeight="800" color="$primary">
+                {preview
+                  ? `Próximo pago: ${formatDateLabel(toISODate(preview.dueDate))}`
+                  : 'Configura el corte y los días de gracia'}
+              </Text>
+            </XStack>
+            {preview ? (
+              <Text fontSize={11} color="$tabIconDefault">
+                {preview.graceDays} días {graceType === 'business' ? 'hábiles bancarios' : 'naturales'}
+                {preview.adjusted
+                  ? ' · ajustado al siguiente día hábil por caer en inhábil'
+                  : ''}
+              </Text>
+            ) : null}
           </YStack>
-        </XStack>
+        </>
       ) : null}
 
       {error ? <FormError>{error}</FormError> : null}

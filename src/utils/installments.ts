@@ -2,6 +2,10 @@ import { PaymentMethod, Transaction } from '@/types'
 
 import {
   DEFAULT_GRACE_DAYS,
+  EMPTY_HOLIDAYS,
+  type HolidaySet,
+} from '@/utils/bankingDates'
+import {
   getStatementPeriod,
   nextDueDate,
   type StatementPeriod,
@@ -32,7 +36,7 @@ export interface Installment {
   closingDate: Date
   /** Fecha límite de pago */
   dueDate: Date
-  /** true si la tarjeta no tiene `due_day` y la fecha se estimó */
+  /** true si la fecha se estimó con la configuración por defecto */
   estimated: boolean
   /** Clave ISO del corte, p. ej. 2026-11-15 */
   periodKey: string
@@ -110,7 +114,8 @@ const startOfDay = (date: Date) =>
 export function getInstallmentPlan(
   transaction: Transaction,
   method: PaymentMethod | null | undefined,
-  today: Date = new Date()
+  today: Date = new Date(),
+  holidays: HolidaySet = EMPTY_HOLIDAYS
 ): InstallmentPlan | null {
   if (!isInstallmentTransaction(transaction) || !method) return null
   if (method.type !== 'credit' || method.closing_day == null) return null
@@ -119,7 +124,7 @@ export function getInstallmentPlan(
   const storedStart = transaction.installments_start_date
   const startKey =
     storedStart ??
-    getStatementPeriod(transaction.date, method)?.key ??
+    getStatementPeriod(transaction.date, method, holidays)?.key ??
     null
   if (!startKey) return null
 
@@ -137,7 +142,7 @@ export function getInstallmentPlan(
   let elapsed = 0
   const temp = amounts.map((_, index) => {
     const closingDate = addMonthsKeepingDay(firstClosing, index)
-    const due = nextDueDate(closingDate, method.due_day)
+    const due = nextDueDate(closingDate, method, holidays)
     if (due.dueDate.getTime() < reference.getTime()) elapsed += 1
     return { closingDate, due }
   })
@@ -207,7 +212,8 @@ export function getEffectiveDetailAmount(
 /** Periodo de facturación construido a partir de un corte ya conocido. */
 export function statementPeriodFromClosing(
   closingDate: Date,
-  method: PaymentMethod
+  method: PaymentMethod,
+  holidays: HolidaySet = EMPTY_HOLIDAYS
 ): StatementPeriod | null {
   if (method.type !== 'credit' || method.closing_day == null) return null
   const previousMonth = new Date(
@@ -222,13 +228,16 @@ export function statementPeriodFromClosing(
   )
   const startDate = new Date(previousClosing)
   startDate.setDate(startDate.getDate() + 1)
-  const due = nextDueDate(closingDate, method.due_day)
+  const due = nextDueDate(closingDate, method, holidays)
   return {
     key: toISODate(closingDate),
     startDate,
     closingDate,
     dueDate: due.dueDate,
     estimated: due.estimated,
+    graceDays: due.graceDays,
+    graceDaysType: due.graceDaysType,
+    adjusted: due.adjusted,
   }
 }
 

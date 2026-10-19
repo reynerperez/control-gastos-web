@@ -14,12 +14,16 @@ import { PaymentMethod, PaymentMethodType } from '@/types'
 const typeColor = (type: PaymentMethodType) =>
   type === 'credit' ? palette.warning : type === 'debit' ? palette.primary : palette.muted
 
-const typeLabel = (method: PaymentMethod) =>
-  method.type === 'cash'
-    ? 'Efectivo'
-    : method.type === 'debit'
-      ? 'Débito'
-      : `Crédito · Corte ${method.closing_day ?? '—'} · Pago ${method.due_day ?? '—'}`
+const typeLabel = (method: PaymentMethod) => {
+  if (method.type === 'cash') return 'Efectivo'
+  const holder = method.cardholder_name
+    ? ` · A nombre de ${method.cardholder_name}`
+    : ''
+  if (method.type === 'debit') return `Débito${holder}`
+  const grace = method.grace_days ?? 20
+  const graceType = method.grace_days_type === 'business' ? 'hábiles' : 'naturales'
+  return `Crédito · Corte ${method.closing_day ?? '—'} · Pago ${grace} días ${graceType}${holder}`
+}
 
 /**
  * Métodos de pago — pantalla propia (antes dentro de Ajustes).

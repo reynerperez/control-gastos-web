@@ -8,6 +8,7 @@ import { CategoryIcon } from '@/components/ui/CategoryIcon'
 import { AppIcon } from '@/components/ui/Icon'
 import { palette } from '@/constants/theme'
 import { useAuth } from '@/contexts/AuthContext'
+import { useHolidays } from '@/contexts/HolidaysContext'
 import { useModals } from '@/contexts/ModalsContext'
 import { useData } from '@/hooks/useData'
 import { formatCurrency, formatDateLabel, toISODate } from '@/utils/format'
@@ -24,6 +25,7 @@ export default function TransactionDetailScreen() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { holidays } = useHolidays()
   const { transactions, deleteTransaction } = useData()
   const { openTransactionForm, openBreakdown } = useModals()
 
@@ -49,7 +51,7 @@ export default function TransactionDetailScreen() {
   const details = transaction.details ?? []
   const primary = details[0]
   const hasBreakdown = !isPending && details.length > 1
-  const plan = getInstallmentPlan(transaction, paymentMethod)
+  const plan = getInstallmentPlan(transaction, paymentMethod, new Date(), holidays)
 
   const onDelete = async () => {
     if (!window.confirm('¿Eliminar este movimiento? Esta acción no se puede deshacer.')) return
