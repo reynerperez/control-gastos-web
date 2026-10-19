@@ -250,20 +250,27 @@ export default function DashboardScreen() {
               </Text>
               <XStack alignItems="center" gap={8} flexWrap="wrap">
                 <Text fontSize={12} color="$tabIconDefault">
-                  Corte {formatDateLabel(toISODate(bestPlan.closingDate))}
-                </Text>
-                <Text fontSize={12} color="$tabIconDefault">
-                  Pago {formatDateLabel(toISODate(bestPlan.dueDate))}
+                  Compra hoy y paga hasta el{' '}
+                  {formatDateLabel(toISODate(bestPlan.dueDate))}
                   {bestPlan.estimated ? ' (estimado)' : ''}
                 </Text>
+                <Text fontSize={12} color="$tabIconDefault">
+                  Corte {formatDateLabel(toISODate(bestPlan.closingDate))}
+                </Text>
               </XStack>
+              {bestPlan.adjusted ? (
+                <Text fontSize={11} color="$tabIconDefault">
+                  El {formatDateLabel(toISODate(bestPlan.rawDueDate))} cae en día inhábil; la
+                  fecha límite se recorre al {formatDateLabel(toISODate(bestPlan.dueDate))}.
+                </Text>
+              ) : null}
             </YStack>
             <YStack alignItems="flex-end">
               <Text fontSize={30} fontWeight="800" color="$primary">
                 {bestPlan.financingDays}
               </Text>
               <Text fontSize={11} color="$tabIconDefault">
-                días para pagar
+                días de financiamiento
               </Text>
             </YStack>
           </XStack>

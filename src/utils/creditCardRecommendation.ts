@@ -33,6 +33,8 @@ export type CreditCardPlan = {
   method: PaymentMethod
   /** Próxima fecha de corte (medianoche local) */
   closingDate: Date
+  /** Fecha límite antes de recorrer inhábiles (corte + gracia) */
+  rawDueDate: Date
   /** Fecha límite de pago calculada (medianoche local) */
   dueDate: Date
   /** Días desde hoy hasta la fecha límite */
@@ -88,6 +90,7 @@ export function getCreditCardPlans(
       return {
         method,
         closingDate,
+        rawDueDate: due.rawDueDate,
         dueDate: due.dueDate,
         financingDays: daysBetween(reference, due.dueDate),
         estimated: due.estimated,

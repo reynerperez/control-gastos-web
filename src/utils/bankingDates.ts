@@ -22,6 +22,8 @@ export interface GraceConfig {
 }
 
 export interface DueDateResult {
+  /** Fecha calculada antes de recorrer inhábiles (corte + gracia) */
+  rawDueDate: Date
   dueDate: Date
   /** Días de gracia usados */
   graceDays: number
@@ -126,6 +128,7 @@ export function resolveDueDate(
 
   const dueDate = nextBusinessDay(rawDue, holidays)
   return {
+    rawDueDate: rawDue,
     dueDate,
     graceDays,
     graceDaysType,
