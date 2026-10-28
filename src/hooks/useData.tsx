@@ -14,6 +14,8 @@ import {
   BreakdownItemInput,
   Budget,
   Category,
+  Household,
+  HouseholdMember,
   PastPurchaseSuggestion,
   PaymentMethod,
   RecurringCharge,
@@ -27,6 +29,16 @@ import { isInstallmentTransaction } from '@/utils/installments';
 import { supabase } from '@/utils/supabase';
 
 type DataContextValue = {
+  /** Espacio compartido al que pertenece el usuario */
+  household: Household | null;
+  /** Miembros del espacio (incluye al usuario actual) */
+  householdMembers: HouseholdMember[];
+  /** Une al usuario al hogar del código y mueve sus datos personales */
+  joinHousehold: (code: string) => Promise<void>;
+  /** Sale del espacio compartido y recibe un hogar personal nuevo */
+  leaveHousehold: () => Promise<void>;
+  /** Genera un código de invitación nuevo */
+  regenerateInviteCode: () => Promise<string>;
   categories: Category[];
   paymentMethods: PaymentMethod[];
   transactions: Transaction[];
@@ -105,6 +117,8 @@ const DEFAULT_PAYMENT_METHODS: Omit<PaymentMethod, 'id' | 'user_id' | 'created_a
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const [household, setHousehold] = useState<Household | null>(null);
+  const [householdMembers, setHouseholdMembers] = useState<HouseholdMember[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -116,20 +130,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const seedingCats = useRef(false);
   const seedingPms = useRef(false);
 
-  const seedDefaultCategories = useCallback(async () => {
+  const seedDefaultCategories = useCallback(async (householdId: string) => {
     if (!user || seedingCats.current) return [];
     seedingCats.current = true;
     try {
-      // Doble verificación: volver a consultar por si otro proceso ya sembró
+      // Doble verificación: volver a consultar por si otro proceso ya sembró.
+      // El seed es por HOGAR: si otro miembro ya tiene categorías, no se duplican.
       const { data: check } = await supabase
         .from('categories')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('household_id', householdId)
         .limit(1);
       if (check && check.length > 0) {
         return [];
       }
-      const rows = DEFAULT_CATEGORIES.map((c) => ({ ...c, user_id: user.id }));
+      const rows = DEFAULT_CATEGORIES.map((c) => ({
+        ...c,
+        user_id: user.id,
+        household_id: householdId,
+      }));
       const { data, error } = await supabase
         .from('categories')
         .insert(rows)
@@ -144,20 +163,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user]);
 
-  const seedDefaultPaymentMethods = useCallback(async () => {
+  const seedDefaultPaymentMethods = useCallback(async (householdId: string) => {
     if (!user || seedingPms.current) return [];
     seedingPms.current = true;
     try {
-      // Doble verificación
+      // Doble verificación por hogar
       const { data: check } = await supabase
         .from('payment_methods')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('household_id', householdId)
         .limit(1);
       if (check && check.length > 0) {
         return [];
       }
-      const rows = DEFAULT_PAYMENT_METHODS.map((p) => ({ ...p, user_id: user.id }));
+      const rows = DEFAULT_PAYMENT_METHODS.map((p) => ({
+        ...p,
+        user_id: user.id,
+        household_id: householdId,
+      }));
       const { data, error } = await supabase
         .from('payment_methods')
         .insert(rows)
@@ -175,7 +198,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const loadAll = useCallback(async () => {
     if (!user) return;
 
-    const [catRes, pmRes, txRes, budgetRes, recurringRes] = await Promise.all([
+    const [membershipRes, catRes, pmRes, txRes, budgetRes, recurringRes] = await Promise.all([
+      supabase
+        .from('household_members')
+        .select('household_id, user_id, role, joined_at')
+        .eq('user_id', user.id)
+        .order('joined_at')
+        .limit(1),
       supabase.from('categories').select('*').order('name'),
       supabase.from('payment_methods').select('*').order('name'),
       supabase
@@ -191,6 +220,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         .order('name'),
     ]);
 
+    if (membershipRes.error) console.error(membershipRes.error.message);
     if (catRes.error) console.error(catRes.error.message);
     if (pmRes.error) console.error(pmRes.error.message);
     if (txRes.error) console.error(txRes.error.message);
@@ -199,10 +229,53 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // sigue funcionando y solo se muestra el estado vacío de compromisos.
     if (recurringRes.error) console.warn(recurringRes.error.message);
 
-    // Seed default categories for first-time users
+    // ── Espacio compartido + sus miembros ──────────────────────────
+    const membership = (membershipRes.data?.[0] ?? null) as {
+      household_id: string;
+      user_id: string;
+      role: HouseholdMember['role'];
+      joined_at: string;
+    } | null;
+    const householdId = membership?.household_id ?? null;
+
+    let currentHousehold: Household | null = null;
+    let members: HouseholdMember[] = [];
+    if (householdId) {
+      const [householdRes, membersRes] = await Promise.all([
+        supabase.from('households').select('*').eq('id', householdId).limit(1),
+        supabase
+          .from('household_members')
+          .select('household_id, user_id, role, joined_at')
+          .eq('household_id', householdId)
+          .order('joined_at'),
+      ]);
+
+      currentHousehold = (householdRes.data?.[0] as Household | undefined) ?? null;
+      const rows = (membersRes.data ?? []) as Omit<HouseholdMember, 'profile'>[];
+
+      if (rows.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', rows.map((row) => row.user_id));
+        const profileById = new Map(
+          ((profiles ?? []) as { id: string }[]).map((profile) => [profile.id, profile])
+        );
+        members = rows.map((row) => ({
+          ...row,
+          profile:
+            (profileById.get(row.user_id) as HouseholdMember['profile']) ?? null,
+        }));
+      }
+    }
+
+    setHousehold(currentHousehold);
+    setHouseholdMembers(members);
+
+    // Seed de categorías/métodos por defecto: solo si el HOGAR está vacío.
     let cats = (catRes.data as Category[]) ?? [];
-    if (cats.length === 0) {
-      cats = await seedDefaultCategories();
+    if (cats.length === 0 && householdId) {
+      cats = await seedDefaultCategories(householdId);
       // Si el seed no devolvió datos (otro proceso ya sembró), recargar
       if (cats.length === 0) {
         const { data: recheck } = await supabase
@@ -213,10 +286,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Seed default payment methods for first-time users
+    // Seed de métodos de pago por defecto para hogares nuevos
     let pms = (pmRes.data as PaymentMethod[]) ?? [];
-    if (pms.length === 0) {
-      pms = await seedDefaultPaymentMethods();
+    if (pms.length === 0 && householdId) {
+      pms = await seedDefaultPaymentMethods(householdId);
       if (pms.length === 0) {
         const { data: recheck } = await supabase
           .from('payment_methods')
@@ -236,6 +309,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let active = true;
     if (!user) {
+      setHousehold(null);
+      setHouseholdMembers([]);
       setCategories([]);
       setPaymentMethods([]);
       setTransactions([]);
@@ -261,6 +336,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<DataContextValue>(
     () => ({
+      household,
+      householdMembers,
+      joinHousehold: async (code) => {
+        const clean = code.trim().toUpperCase();
+        if (!clean) throw new Error('Escribe un código de invitación.');
+        const { error } = await supabase.rpc('join_household', { p_code: clean });
+        if (error) throw new Error(translateHouseholdError(error.message));
+        await loadAll();
+      },
+      leaveHousehold: async () => {
+        const { error } = await supabase.rpc('leave_household');
+        if (error) throw new Error(translateHouseholdError(error.message));
+        await loadAll();
+      },
+      regenerateInviteCode: async () => {
+        const { data, error } = await supabase.rpc('regenerate_invite_code');
+        if (error) throw new Error(translateHouseholdError(error.message));
+        const code = String(data ?? '');
+        setHousehold((prev) => (prev ? { ...prev, invite_code: code } : prev));
+        return code;
+      },
       categories,
       paymentMethods,
       transactions,
@@ -271,6 +367,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       refresh,
       addTransaction: async (input) => {
         if (!user) return;
+        if (!household) {
+          throw new Error('Tu espacio compartido aún no está listo. Recarga la página.');
+        }
         const { data: tx, error: txError } = await supabase
           .from('transactions')
           .insert({
@@ -294,6 +393,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
                 }
               : {}),
             user_id: user.id,
+            household_id: household.id,
           })
           .select()
           .single();
@@ -387,11 +487,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       },
       addCategory: async (input) => {
         if (!user) return;
+        if (!household) {
+          throw new Error('Tu espacio compartido aún no está listo. Recarga la página.');
+        }
         // Validar que no exista una categoría con el mismo nombre y tipo
         const { data: existing } = await supabase
           .from('categories')
           .select('id')
-          .eq('user_id', user.id)
+          .eq('household_id', household.id)
           .eq('name', input.name.trim())
           .eq('type', input.type)
           .limit(1);
@@ -400,7 +503,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
         const { error } = await supabase
           .from('categories')
-          .insert({ ...input, user_id: user.id, name: input.name.trim() });
+          .insert({
+            ...input,
+            user_id: user.id,
+            household_id: household.id,
+            name: input.name.trim(),
+          });
         if (error) throw new Error(error.message);
         await loadAll();
       },
@@ -411,7 +519,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           const { data: existing } = await supabase
             .from('categories')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('household_id', household?.id ?? '')
             .eq('name', input.name.trim())
             .eq('type', cat?.type ?? 'expense')
             .neq('id', id)
@@ -435,11 +543,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       },
       addPaymentMethod: async (input) => {
         if (!user) return;
+        if (!household) {
+          throw new Error('Tu espacio compartido aún no está listo. Recarga la página.');
+        }
         // Validar que no exista un método de pago con el mismo nombre
         const { data: existing } = await supabase
           .from('payment_methods')
           .select('id')
-          .eq('user_id', user.id)
+          .eq('household_id', household.id)
           .eq('name', input.name.trim())
           .limit(1);
         if (existing && existing.length > 0) {
@@ -447,7 +558,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
         const { error } = await supabase
           .from('payment_methods')
-          .insert({ ...input, user_id: user.id, name: input.name.trim() });
+          .insert({
+            ...input,
+            user_id: user.id,
+            household_id: household.id,
+            name: input.name.trim(),
+          });
         if (error) throw new Error(error.message);
         await loadAll();
       },
@@ -561,15 +677,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       },
       setBudget: async (categoryId, amount, month) => {
         if (!user) return;
+        if (!household) {
+          throw new Error('Tu espacio compartido aún no está listo. Recarga la página.');
+        }
         const monthKey = toMonthKey(month);
         const { error } = await supabase.from('budgets').upsert(
           {
             user_id: user.id,
+            household_id: household.id,
             category_id: categoryId,
             amount,
             month: monthKey,
           },
-          { onConflict: 'user_id,category_id,month' }
+          { onConflict: 'household_id,category_id,month' }
         );
         if (error) throw new Error(error.message);
         await loadAll();
@@ -582,6 +702,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // ── Compromisos recurrentes ─────────────────────────────────
       addRecurringCharge: async (input) => {
         if (!user) return;
+        if (!household) {
+          throw new Error('Tu espacio compartido aún no está listo. Recarga la página.');
+        }
         if (!input.name.trim()) throw new Error('Escribe un nombre para el compromiso.');
         if (!input.amount || input.amount <= 0) {
           throw new Error('El monto debe ser mayor a cero.');
@@ -592,6 +715,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const { error } = await supabase.from('recurring_charges').insert({
           ...input,
           user_id: user.id,
+          household_id: household.id,
           name: input.name.trim(),
         });
         if (error) throw new Error(error.message);
@@ -646,6 +770,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       },
     }),
     [
+      household,
+      householdMembers,
       categories,
       paymentMethods,
       transactions,
@@ -660,6 +786,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+}
+
+/** Traduce los errores de las RPC de hogar a mensajes claros en español. */
+function translateHouseholdError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('código de invitación inválido')) {
+    return 'El código de invitación no existe. Revísalo e inténtalo de nuevo.';
+  }
+  if (m.includes('ya compartes un espacio')) {
+    return 'Ya compartes un espacio. Sal de él antes de unirte a otro.';
+  }
+  if (m.includes('no compartes tu espacio')) {
+    return 'Tu espacio ya es personal: no hay nadie más en él.';
+  }
+  if (m.includes('no perteneces')) {
+    return 'No encontramos tu espacio compartido. Recarga la página.';
+  }
+  if (m.includes('debes iniciar sesión')) {
+    return 'Tu sesión expiró. Vuelve a iniciar sesión.';
+  }
+  return message;
 }
 
 export function useData() {

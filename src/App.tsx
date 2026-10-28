@@ -17,6 +17,7 @@ import DashboardScreen from '@/screens/DashboardScreen'
 import LoginScreen from '@/screens/LoginScreen'
 import PaymentMethodsScreen from '@/screens/PaymentMethodsScreen'
 import SettingsScreen from '@/screens/SettingsScreen'
+import SharedSpaceScreen from '@/screens/SharedSpaceScreen'
 import SignupScreen from '@/screens/SignupScreen'
 import TransactionDetailScreen from '@/screens/TransactionDetailScreen'
 import TransactionsScreen from '@/screens/TransactionsScreen'
@@ -48,6 +49,7 @@ export default function App() {
                       <Route path="/ajustes" element={<SettingsScreen />} />
                       <Route path="/ajustes/categorias" element={<CategoriesScreen />} />
                       <Route path="/ajustes/metodos-de-pago" element={<PaymentMethodsScreen />} />
+                      <Route path="/ajustes/espacio" element={<SharedSpaceScreen />} />
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

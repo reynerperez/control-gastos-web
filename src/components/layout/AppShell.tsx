@@ -44,6 +44,7 @@ const PAGE_TITLES: { match: (path: string) => boolean; title: string; subtitle: 
   { match: (p) => p === '/presupuestos', title: 'Presupuestos', subtitle: 'Límites mensuales por categoría' },
   { match: (p) => p === '/ajustes/categorias', title: 'Categorías', subtitle: 'Organiza tus categorías de gastos e ingresos' },
   { match: (p) => p === '/ajustes/metodos-de-pago', title: 'Métodos de pago', subtitle: 'Efectivo, tarjetas y sus fechas de corte' },
+  { match: (p) => p === '/ajustes/espacio', title: 'Espacio compartido', subtitle: 'Invita a otra persona y compartan todos sus datos' },
   { match: (p) => p === '/ajustes', title: 'Ajustes', subtitle: 'Cuenta y configuración' },
 ]
 

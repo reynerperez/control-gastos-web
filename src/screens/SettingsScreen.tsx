@@ -17,7 +17,7 @@ import { getUserDisplayName } from '@/utils/user'
 export default function SettingsScreen() {
   const navigate = useNavigate()
   const { user, signOut } = useAuth()
-  const { categories, paymentMethods } = useData()
+  const { categories, paymentMethods, household, householdMembers } = useData()
 
   const expenseCount = categories.filter((category) => category.type === 'expense').length
   const incomeCount = categories.filter((category) => category.type === 'income').length
@@ -69,6 +69,20 @@ export default function SettingsScreen() {
             subtitle={`${paymentMethods.length} registrados`}
             ariaLabel="Métodos de pago"
             onPress={() => navigate('/ajustes/metodos-de-pago')}
+          />
+          <SettingsRow
+            icon="person-add"
+            iconColor={palette.primary}
+            title="Espacio compartido"
+            subtitle={
+              household
+                ? `${householdMembers.length} ${
+                    householdMembers.length === 1 ? 'miembro' : 'miembros'
+                  } · Código ${household.invite_code}`
+                : 'Comparte los datos con otra persona'
+            }
+            ariaLabel="Espacio compartido"
+            onPress={() => navigate('/ajustes/espacio')}
           />
         </Card>
       </YStack>

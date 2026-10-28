@@ -14,9 +14,34 @@ export type GraceDaysType = 'natural' | 'business';
  */
 export type PurchaseType = 'one_time' | 'installments';
 
+/**
+ * Espacio compartido (hogar). Todos los miembros ven y editan los
+ * mismos datos. El código de invitación se comparte para unirse.
+ */
+export interface Household {
+  id: string;
+  name: string;
+  invite_code: string;
+  created_by: string;
+  created_at: string;
+}
+
+export type HouseholdRole = 'owner' | 'member';
+
+export interface HouseholdMember {
+  household_id: string;
+  user_id: string;
+  role: HouseholdRole;
+  joined_at: string;
+  /** Perfil del miembro (puede faltar si la RLS aún no lo expone) */
+  profile?: Profile | null;
+}
+
 export interface Category {
   id: string;
   user_id: string;
+  /** Hogar al que pertenece; desde la migración de espacios compartidos. */
+  household_id?: string;
   name: string;
   icon: string; // Ionicons name
   color: string;
@@ -28,6 +53,7 @@ export interface Category {
 export interface PaymentMethod {
   id: string;
   user_id: string;
+  household_id?: string;
   name: string;
   type: PaymentMethodType;
   closing_day: number | null;
@@ -64,6 +90,7 @@ export interface TransactionDetail {
 export interface Transaction {
   id: string;
   user_id: string;
+  household_id?: string;
   amount: number;
   type: TransactionType;
   breakdown_status: BreakdownStatus;
@@ -99,6 +126,7 @@ export type RecurringFrequency = 'monthly' | 'yearly';
 export interface RecurringCharge {
   id: string;
   user_id: string;
+  household_id?: string;
   name: string;
   category_id: string | null;
   payment_method_id: string | null;
@@ -128,6 +156,7 @@ export type RecurringChargeInput = Omit<
 export interface Budget {
   id: string;
   user_id: string;
+  household_id?: string;
   category_id: string;
   amount: number;
   month: string; // First day of month: YYYY-MM-01

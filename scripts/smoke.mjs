@@ -348,9 +348,19 @@ try {
   // ── 7. Ajustes ─────────────────────────────────────────────────
   await send('Page.navigate', { url: `${BASE}/ajustes` })
   await waitFor('pantalla de ajustes', `document.body.innerText.includes('Configuración')`)
-  check('Ajustes: perfil y accesos a secciones', await hasText('smoke@test.local', 'Cerrar sesión', 'Categorías', 'Métodos de pago'))
+  check('Ajustes: perfil y accesos a secciones', await hasText('smoke@test.local', 'Cerrar sesión', 'Categorías', 'Métodos de pago', 'Espacio compartido'))
+
+  // Espacio compartido (con sesión simulada no hay hogar: muestra el aviso)
+  check('Ajustes: abre Espacio compartido', await clickElement(byAriaLabel('Espacio compartido')))
+  await waitFor('pantalla de espacio compartido', `document.body.innerText.includes('Espacio compartido')`)
+  check(
+    'Espacio compartido: explica el estado sin hogar',
+    await hasText('No encontramos tu espacio compartido')
+  )
 
   // Métodos de pago (página propia)
+  await send('Page.navigate', { url: `${BASE}/ajustes` })
+  await waitFor('pantalla de ajustes', `document.body.innerText.includes('Configuración')`)
   check('Ajustes: navega a Métodos de pago', await clickElement(byAriaLabel('Métodos de pago')))
   await waitFor('pantalla de métodos de pago', `document.body.innerText.includes('Agregar')`)
   check('Métodos de pago: abre modal', await clickElement(byAriaLabel('Agregar método de pago')))
@@ -408,7 +418,7 @@ try {
 
   // ── 9. Layout móvil ────────────────────────────────────────────
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 2, mobile: true })
-  for (const path of ['/', '/movimientos', '/compromisos', '/presupuestos', '/ajustes']) {
+  for (const path of ['/', '/movimientos', '/compromisos', '/presupuestos', '/ajustes', '/ajustes/espacio']) {
     await send('Page.navigate', { url: `${BASE}${path}` })
     await sleep(1800)
     check(`Mobile: sin desbordes en ${path}`, await evaluate('document.documentElement.scrollWidth <= 391'))

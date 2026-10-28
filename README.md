@@ -92,10 +92,23 @@ generan con las mismas reglas. Se pueden agregar cierres extraordinarios manualm
 `holidays`.
 
 Migraciones: `supabase/migrations/20261019163800_msi_recurring_charges.sql`,
-`20261019184444_card_grace_days_holidays.sql` y
-`20261019190000_seed_holidays_2031_2035.sql`. La segunda agrega los días de gracia, crea
-el calendario CNBV y elimina `due_day` después del backfill. La web es la fuente principal
-del esquema; el móvil consume la misma base de datos.
+`20261019184444_card_grace_days_holidays.sql`,
+`20261019190000_seed_holidays_2031_2035.sql` y
+`20261024090000_shared_households.sql`. La segunda agrega los días de gracia, crea el
+calendario CNBV y elimina `due_day` después del backfill. La última introduce el
+**espacio compartido**: cada usuario tiene un hogar (`households`) y todos los datos llevan
+`household_id`; las políticas RLS permiten ver y editar lo del mismo hogar. La web es la
+fuente principal del esquema; el móvil consume la misma base de datos.
+
+### Espacio compartido (hogar)
+
+- Al registrarse, cada cuenta recibe un hogar personal con un **código de invitación**.
+- En **Ajustes → Espacio compartido** puedes copiar el código, generar uno nuevo, unirte
+  con el código de otra persona o salir del espacio.
+- Al unirte, tus datos personales se **mueven** al hogar compartido (no se pierden). Solo
+  se permite si aún no compartes tu hogar con otra persona.
+- A partir de ahí, ambos ven y editan movimientos, categorías, medios de pago, presupuestos
+  y compromisos. `user_id` se conserva como autor del registro.
 
 ```bash
 supabase db push        # aplica las migraciones al proyecto vinculado
