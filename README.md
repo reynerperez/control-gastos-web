@@ -21,7 +21,7 @@ Versión **web** del control de gastos personal. Se conecta a la **misma base de
 | Compras a Meses Sin Intereses: parcialidad mensual derivada, sin duplicar filas | Check «Comprar a meses sin intereses» en el alta |
 | Compromisos recurrentes (servicios, renta, suscripciones) y saldos MSI | `/compromisos` (pestañas MSI / Recurrentes) |
 | Proyección de MSI y servicios en la fecha límite de pago de cada tarjeta | Acordeón de «Periodos» en Movimientos |
-| Detalle del movimiento (incluye ubicación con enlace a mapas) | `/movimientos/:id` (página completa) y side peek en la misma pestaña |
+| Detalle del movimiento (incluye ubicación con enlace a mapas); edición inline con candado y guardado explícito en la web | `/movimientos/:id` (página completa) y side peek en la misma pestaña |
 | Desglose de ticket (ítems, sugerencias de compras pasadas, cierre rápido) | Modal «Desglosar ticket» |
 | Presupuestos mensuales por categoría con progreso | `/presupuestos` |
 | Ajustes: perfil y accesos | `/ajustes` |
@@ -29,7 +29,7 @@ Versión **web** del control de gastos personal. Se conecta a la **misma base de
 | Métodos de pago (CRUD propio) | `/ajustes/metodos-de-pago` |
 | Selector de periodo (mes, rango, todo el historial) | Modal de periodo, compartido entre pantallas |
 
-Diferencias propias de la web: layout con barra lateral (iconos en pantallas chicas), diálogos en lugar de pantallas modales, inputs de fecha nativos, geolocalización del navegador (best-effort, solo al crear), detalle en side peek (página completa al abrir en otra pestaña) y refresco automático al volver a la pestaña.
+Diferencias propias de la web: layout con barra lateral (iconos en pantallas chicas), diálogos en lugar de pantallas modales, inputs de fecha nativos, geolocalización del navegador (best-effort, solo al crear), detalle en side peek (página completa al abrir en otra pestaña; con animación de entrada y salida), edición inline del detalle (bloqueada por defecto; se guarda o descarta en lote; toda la fila acepta el clic, el tipo de movimiento es fijo y el foco resalta la fila completa con caret visible) y refresco automático al volver a la pestaña.
 
 > La lógica de recomendación de tarjetas está documentada en
 > [`docs/recomendacion-tarjetas.md`](docs/recomendacion-tarjetas.md).

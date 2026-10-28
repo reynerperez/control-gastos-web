@@ -1,6 +1,6 @@
 import { Spinner, Text, XStack } from 'tamagui'
 
-import { CONTROL_HEIGHT, shadow, CSS_TRANSITION } from '@/constants/ui'
+import { CONTROL_HEIGHT, shadow, CSS_TRANSITION, focusOutline } from '@/constants/ui'
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost'
 
@@ -67,11 +67,7 @@ export function Button({
           : { opacity: 0.92, backgroundColor: variant === 'secondary' ? '$surfaceHover' : backgroundColor }
       }
       pressStyle={isDisabled ? undefined : { opacity: 0.8 }}
-      focusVisibleStyle={{
-        outlineWidth: 2,
-        outlineColor: '$primary',
-        outlineOffset: 2,
-      }}
+      focusVisibleStyle={focusOutline}
       {...(elevated && !isDisabled ? shadow.soft : {})}
       onPress={() => {
         if (!isDisabled) onPress()

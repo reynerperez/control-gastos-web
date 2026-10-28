@@ -1,5 +1,3 @@
-import { palette } from '@/constants/theme'
-
 /**
  * constants/ui.ts — tokens visuales de la web.
  *
@@ -39,15 +37,27 @@ export const shadow = {
   },
 } as const
 
-/** Indicador de foco compartido: borde primario + halo */
+/** Indicador de foco con caja: borde neutro claro, sin halo. */
 export const focusRing = {
-  borderColor: '$primary',
+  borderColor: '$textSecondary',
   outlineWidth: 0,
   outlineStyle: 'none',
-  shadowColor: palette.primary,
-  shadowOpacity: 0.32,
-  shadowRadius: 10,
-  shadowOffset: { width: 0, height: 0 },
+} as const
+
+/** Foco para controles sin caja visible: línea neutra sólida por fuera. */
+export const focusOutline = {
+  outlineWidth: 2,
+  outlineColor: '$textSecondary',
+  outlineOffset: 2,
+  outlineStyle: 'solid',
+} as const
+
+/** Foco de filas inline: línea neutra del mismo grosor que un borde. */
+export const inlineFocusLine = {
+  outlineWidth: 1,
+  outlineColor: '$textSecondary',
+  outlineOffset: -1,
+  outlineStyle: 'solid',
 } as const
 
 /** Transición CSS estándar (web) */

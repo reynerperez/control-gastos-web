@@ -25,7 +25,7 @@ const NAV_ITEMS = [
   { to: '/ajustes', label: 'Ajustes', icon: 'settings-outline' },
 ]
 
-const PAGE_TITLES: { match: (path: string) => boolean; title: string; subtitle: string }[] = [
+const PAGE_TITLES: { match: (path: string) => boolean; title: string; subtitle?: string }[] = [
   { match: (p) => p === '/', title: 'Resumen', subtitle: 'Balance, gastos por categoría y presupuestos' },
   {
     match: (p) => p === '/movimientos',
@@ -35,7 +35,6 @@ const PAGE_TITLES: { match: (path: string) => boolean; title: string; subtitle: 
   {
     match: (p) => p.startsWith('/movimientos/'),
     title: 'Detalle del movimiento',
-    subtitle: 'Información completa del registro',
   },
   {
     match: (p) => p === '/compromisos',
@@ -93,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Control de Gastos
             </Text>
             <Text fontSize={12} color="$tabIconDefault">
-              v1.0
+              v1.1
             </Text>
           </YStack>
         </XStack>
@@ -208,14 +207,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Text fontSize={20} fontWeight="800" color="$text" numberOfLines={1}>
               {page.title}
             </Text>
-            <Text
-              display="none"
-              $gtSm={{ display: 'flex' }}
-              fontSize={13}
-              color="$tabIconDefault"
-              numberOfLines={1}>
-              {page.subtitle}
-            </Text>
+            {page.subtitle ? (
+              <Text
+                display="none"
+                $gtSm={{ display: 'flex' }}
+                fontSize={13}
+                color="$tabIconDefault"
+                numberOfLines={1}>
+                {page.subtitle}
+              </Text>
+            ) : null}
           </YStack>
 
           <Button

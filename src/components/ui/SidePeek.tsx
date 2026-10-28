@@ -1,8 +1,11 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { hasOpenPopovers, Text, XStack, YStack } from 'tamagui'
 
 import { IconButton } from '@/components/ui/CategoryIcon'
 import { shadow } from '@/constants/ui'
+
+/** Duración de la salida; debe coincidir con `peek-out` en index.css. */
+const PEEK_EXIT_MS = 200
 
 type Props = {
   open?: boolean
@@ -12,6 +15,10 @@ type Props = {
   children: ReactNode
   /** Acciones extra a la derecha del encabezado (antes del botón de cerrar) */
   headerActions?: ReactNode
+  /** Barra fija al pie, fuera del área de scroll */
+  footer?: ReactNode
+  /** Acción para Escape; por defecto cierra el panel. */
+  onEscape?: () => void
   /** Ancho del panel en desktop (en móvil ocupa todo el ancho) */
   width?: number
 }
@@ -31,8 +38,27 @@ export function SidePeek({
   subtitle,
   children,
   headerActions,
+  footer,
+  onEscape,
   width = 560,
 }: Props) {
+  const [present, setPresent] = useState(open)
+
+  // Al reabrir durante la salida (o después de ella) se restaura el panel en
+  // el render, no en un effect, para que el slide de entrada empiece ya.
+  if (open && !present) setPresent(true)
+
+  // Mantiene el panel montado durante la animación de salida. Sin esto el
+  // padre lo desmontaría al cerrar y el slide nunca se vería.
+  useEffect(() => {
+    if (open || !present) return
+
+    const timeout = window.setTimeout(() => setPresent(false), PEEK_EXIT_MS)
+    return () => window.clearTimeout(timeout)
+  }, [open, present])
+
+  const exiting = present && !open
+
   useEffect(() => {
     if (!open) return
 
@@ -41,19 +67,25 @@ export function SidePeek({
       // Hay otro diálogo modal encima (formulario, desglose…): que lo cierre él.
       const modals = document.querySelectorAll('[aria-modal="true"]')
       if (modals.length > 1) return
-      onClose()
+      ;(onEscape ?? onClose)()
     }
 
     window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose, onEscape])
+
+  // El scroll sigue bloqueado mientras dura la salida.
+  useEffect(() => {
+    if (!present) return
+
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     return () => {
-      window.removeEventListener('keydown', onKeyDown)
       document.body.style.overflow = previousOverflow
     }
-  }, [open, onClose])
+  }, [present])
 
-  if (!open) return null
+  if (!present) return null
 
   return (
     <YStack
@@ -63,6 +95,7 @@ export function SidePeek({
       right={0}
       bottom={0}
       zIndex={9000}
+      pointerEvents={exiting ? 'none' : undefined}
       alignItems="flex-end">
       {/* Backdrop: oscurece la pantalla actual sin bloquear el peek */}
       <YStack
@@ -73,7 +106,11 @@ export function SidePeek({
         bottom={0}
         zIndex={0}
         backgroundColor="rgba(0, 0, 0, 0.5)"
-        style={{ animation: 'backdrop-in 140ms ease-out' }}
+        style={{
+          animation: exiting
+            ? 'backdrop-out 160ms ease-in forwards'
+            : 'backdrop-in 160ms ease-out',
+        }}
         onPress={onClose}
         aria-hidden
       />
@@ -91,7 +128,11 @@ export function SidePeek({
         borderLeftWidth={1}
         borderLeftColor="$border"
         overflow="hidden"
-        style={{ animation: 'peek-in 180ms ease-out' }}
+        style={{
+          animation: exiting
+            ? 'peek-out 200ms ease-in forwards'
+            : 'peek-in 200ms ease-out',
+        }}
         {...shadow.raised}>
         <XStack
           alignItems="center"
@@ -128,6 +169,18 @@ export function SidePeek({
           style={{ overflowY: 'auto' }}>
           {children}
         </YStack>
+
+        {footer ? (
+          <YStack
+            flexShrink={0}
+            paddingHorizontal="$lg"
+            paddingVertical="$md"
+            borderTopWidth={1}
+            borderTopColor="$border"
+            backgroundColor="$card">
+            {footer}
+          </YStack>
+        ) : null}
       </YStack>
     </YStack>
   )

@@ -39,15 +39,14 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 /* ═══════════════════════════════════════════════════════════════
- * 🎯 FOCO — indicador armonioso con el color de marca.
- *    Se elimina el outline nativo (azul del navegador) y se usa un
- *    anillo sutil. En inputs el indicador es el borde + halo
- *    (definido con `focusStyle` en los componentes), por eso aquí
- *    se les quita el outline.
+ * 🎯 FOCO — una línea sólida con un neutro claro.
+ *    Los controles con caja usan borde neutro (sin halo); los
+ *    botones y enlaces usan este outline solo con teclado. Los
+ *    inputs inline mueven el foco a su fila contenedora.
  * ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  --focus-ring: rgba(116, 119, 255, 0.55);
+  --focus-line: #a6a6a6;
   /* Tamagui pinta la selección de inputs con esta variable; sin definirla
      la selección queda transparente aunque el texto sí se seleccione. */
   --t_selectionColor: rgba(124, 131, 255, 0.45);
@@ -69,7 +68,7 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 :focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--focus-line);
   outline-offset: 2px;
 }
 
@@ -80,6 +79,20 @@ textarea:focus-visible,
 select:focus,
 select:focus-visible {
   outline: none;
+}
+
+/* El caret debe verse al editar y usar el color del texto. En campos
+ * bloqueados desaparece para no sugerir que se puede escribir. */
+input:not([readonly]):not([disabled]),
+textarea:not([readonly]):not([disabled]) {
+  caret-color: currentColor;
+}
+
+input[readonly],
+textarea[readonly],
+input[disabled],
+textarea[disabled] {
+  caret-color: transparent;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -95,6 +108,15 @@ select:focus-visible {
   }
 }
 
+@keyframes backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 @keyframes modal-in {
   from {
     opacity: 0;
@@ -106,15 +128,26 @@ select:focus-visible {
   }
 }
 
-/* Side peek: entra deslizándose desde la derecha (tipo Notion) */
+/* Side peek: entra y sale deslizándose desde/hacia la derecha (tipo Notion) */
 @keyframes peek-in {
   from {
     opacity: 0;
-    transform: translateX(28px);
+    transform: translateX(64px);
   }
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes peek-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(64px);
   }
 }
 
@@ -127,6 +160,20 @@ select:focus-visible {
     opacity: 1;
     transform: none;
   }
+}
+
+/* Edición inline del detalle: la affordance ocupa su espacio desde el inicio
+ * y solo aparece al pasar el cursor o al enfocar un campo editable. */
+.inline-field-affordance {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.inline-field.is-editable:hover .inline-field-affordance,
+.inline-field.is-editable:focus-within .inline-field-affordance,
+.inline-field.is-editable:focus-visible .inline-field-affordance,
+.inline-field.is-editable.is-active .inline-field-affordance {
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {

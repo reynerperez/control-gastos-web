@@ -1,21 +1,31 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { TransactionDetailContent } from '@/components/transaction/TransactionDetailContent'
-import { IconButton } from '@/components/ui/CategoryIcon'
-import { SidePeek } from '@/components/ui/SidePeek'
 import { useModals } from '@/contexts/ModalsContext'
 import { useData } from '@/hooks/useData'
 
 /**
  * Side peek de movimientos, montado una sola vez para toda la app.
  * Cualquier pantalla puede abrirlo con `openTransactionPeek(id)`.
+ *
+ * El panel y sus acciones de header viven en `TransactionDetailContent` para
+ * compartir el estado del candado con el contenido.
  */
 export function TransactionPeek() {
   const location = useLocation()
   const { peekTransactionId, closeTransactionPeek } = useModals()
   const { transactions, loading } = useData()
   const previousPath = useRef(location.pathname)
+  // Se conserva el último id para que el panel siga montado durante el slide
+  // de salida; `open` es lo que le dice a SidePeek que ya debe cerrarse.
+  const [displayedId, setDisplayedId] = useState<string | null>(null)
+
+  // Se sincroniza durante el render (no en un effect) para que el contenido
+  // nuevo esté listo en el mismo commit en que se abre el peek.
+  if (peekTransactionId && peekTransactionId !== displayedId) {
+    setDisplayedId(peekTransactionId)
+  }
 
   // Al navegar a otra pantalla el peek deja de tener sentido: se cierra.
   useEffect(() => {
@@ -24,8 +34,10 @@ export function TransactionPeek() {
     closeTransactionPeek()
   }, [location.pathname, closeTransactionPeek])
 
-  const transaction = peekTransactionId
-    ? transactions.find((item) => item.id === peekTransactionId)
+  const transactionId = peekTransactionId ?? displayedId
+  const open = Boolean(peekTransactionId)
+  const transaction = transactionId
+    ? transactions.find((item) => item.id === transactionId)
     : undefined
 
   // Si el movimiento se elimina (desde el formulario o el propio peek),
@@ -35,39 +47,14 @@ export function TransactionPeek() {
     if (!transaction) closeTransactionPeek()
   }, [peekTransactionId, loading, transaction, closeTransactionPeek])
 
-  if (!peekTransactionId) return null
-
-  const subtitle =
-    transaction?.merchant?.trim() ||
-    transaction?.details?.[0]?.category?.name ||
-    undefined
-
-  const openInNewTab = () => {
-    window.open(
-      `${window.location.origin}/movimientos/${peekTransactionId}`,
-      '_blank',
-      'noopener,noreferrer'
-    )
-  }
+  if (!transactionId) return null
 
   return (
-    <SidePeek
-      open
+    <TransactionDetailContent
+      transactionId={transactionId}
+      variant="peek"
+      open={open}
       onClose={closeTransactionPeek}
-      title="Detalle del movimiento"
-      subtitle={subtitle}
-      headerActions={
-        <IconButton
-          icon="open-outline"
-          onPress={openInNewTab}
-          ariaLabel="Abrir en otra pestaña"
-        />
-      }>
-      <TransactionDetailContent
-        transactionId={peekTransactionId}
-        variant="peek"
-        onClose={closeTransactionPeek}
-      />
-    </SidePeek>
+    />
   )
 }

@@ -114,7 +114,7 @@ export function DateField({
       hoverStyle={disabled ? undefined : { borderColor: hasError ? '$expense' : '$borderStrong' }}
       focusWithinStyle={
         hasError
-          ? { ...focusRing, borderColor: '$expense', shadowColor: '$expense' }
+          ? { ...focusRing, borderColor: '$expense' }
           : focusRing
       }>
       <Input

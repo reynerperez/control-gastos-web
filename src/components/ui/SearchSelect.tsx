@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Input, Popover, Text, View, XStack, YStack } from 'tamagui'
 
 import { AppIcon } from '@/components/ui/Icon'
-import { CONTROL_HEIGHT, shadow, CSS_TRANSITION } from '@/constants/ui'
+import { CONTROL_HEIGHT, shadow, CSS_TRANSITION, focusOutline } from '@/constants/ui'
 import { palette } from '@/constants/theme'
 
 /**
@@ -41,6 +41,14 @@ type BaseProps = {
   disabled?: boolean
   /** Icono mostrado cuando no hay nada seleccionado */
   leadingIcon?: string
+  /** `inline` se integra a una fila de detalle, sin caja visible. */
+  variant?: 'default' | 'inline'
+  /** Solo lectura: conserva el valor, pero no abre el popover. */
+  readOnly?: boolean
+  /** Permite ocultar el icono cuando la fila ya tiene uno propio. */
+  showLeadingIcon?: boolean
+  /** Notifica apertura/cierre para que la fila contenedora siga resaltada. */
+  onOpenChange?: (open: boolean) => void
 }
 
 type SingleProps = BaseProps & {
@@ -222,8 +230,14 @@ export function SearchSelect(props: SearchSelectProps) {
     emptyMessage = 'Sin resultados',
     disabled = false,
     leadingIcon,
+    variant = 'default',
+    readOnly = false,
+    showLeadingIcon = true,
+    onOpenChange,
   } = props
   const multiple = props.multiple === true
+  const inline = variant === 'inline'
+  const interactive = !disabled && !readOnly
   const selectedIds = multiple
     ? props.value
     : props.value
@@ -238,6 +252,19 @@ export function SearchSelect(props: SearchSelectProps) {
   const triggerRef = useRef<HTMLElement | null>(null)
   const listRef = useRef<HTMLElement | null>(null)
   const inputRef = useRef<any>(null)
+  const openRef = useRef(false)
+
+  const changeOpen = (next: boolean) => {
+    if (openRef.current === next) return
+    openRef.current = next
+    setOpen(next)
+    onOpenChange?.(next)
+  }
+
+  /** Al cerrar desde el propio selector, la fila recupera el foco. */
+  const restoreTriggerFocus = () => {
+    window.setTimeout(() => triggerRef.current?.focus?.(), 0)
+  }
 
   const filtered = useMemo(() => filterOptions(options, query), [options, query])
 
@@ -266,6 +293,7 @@ export function SearchSelect(props: SearchSelectProps) {
   }, [highlight, open])
 
   const choose = (id: string) => {
+    if (!interactive) return
     if (props.multiple) {
       const next = selectedIds.includes(id)
         ? selectedIds.filter((value) => value !== id)
@@ -274,7 +302,8 @@ export function SearchSelect(props: SearchSelectProps) {
       setQuery('')
     } else {
       props.onChange(id)
-      setOpen(false)
+      changeOpen(false)
+      restoreTriggerFocus()
     }
   }
 
@@ -300,7 +329,8 @@ export function SearchSelect(props: SearchSelectProps) {
     } else if (event.key === 'Escape') {
       // Cierra el selector sin cerrar el modal que lo contiene
       event.stopPropagation()
-      setOpen(false)
+      changeOpen(false)
+      restoreTriggerFocus()
     }
   }
 
@@ -315,63 +345,83 @@ export function SearchSelect(props: SearchSelectProps) {
   const hasSelection = selectedOptions.length > 0
 
   return (
-    <Popover open={open} onOpenChange={setOpen} placement="bottom-start" zIndex={100000}>
-      <Popover.Trigger asChild disabled={disabled}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!interactive) return
+        changeOpen(next)
+      }}
+      placement="bottom-start"
+      zIndex={100000}>
+      <Popover.Trigger asChild disabled={!interactive}>
         <XStack
           ref={triggerRef as never}
+          width={inline ? '100%' : undefined}
           role="button"
           aria-label={ariaLabel}
           aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-disabled={disabled}
+          aria-expanded={interactive ? open : undefined}
+          aria-disabled={!interactive}
+          aria-readonly={readOnly}
           alignItems="center"
-          gap="$sm"
-          height={CONTROL_HEIGHT}
-          paddingHorizontal="$md"
-          borderRadius="$md"
-          borderWidth={1}
-          borderColor={open ? '$primary' : '$border'}
-          backgroundColor="$card"
+          gap={inline ? 4 : '$sm'}
+          height={inline ? 26 : CONTROL_HEIGHT}
+          paddingHorizontal={inline ? 4 : '$md'}
+          borderRadius={inline ? '$sm' : '$md'}
+          borderWidth={inline ? 0 : 1}
+          borderColor={inline ? 'transparent' : open ? '$textSecondary' : '$border'}
+          backgroundColor={inline ? 'transparent' : '$card'}
           opacity={disabled ? 0.5 : 1}
-          cursor={disabled ? 'not-allowed' : 'pointer'}
+          cursor={interactive ? 'pointer' : 'default'}
           style={{ transition: CSS_TRANSITION }}
-          hoverStyle={disabled ? undefined : { borderColor: open ? '$primary' : '$borderStrong' }}
-          pressStyle={disabled ? undefined : { opacity: 0.9 }}
-          focusVisibleStyle={{
-            outlineWidth: 2,
-            outlineColor: '$primary',
-            outlineOffset: 2,
-          }}
+          hoverStyle={
+            interactive && !inline
+              ? { borderColor: open ? '$textSecondary' : '$borderStrong' }
+              : undefined
+          }
+          pressStyle={interactive ? { opacity: 0.9 } : undefined}
+          focusVisibleStyle={
+            !interactive
+              ? undefined
+              : inline
+                ? { outlineWidth: 0, outlineStyle: 'none' }
+                : focusOutline
+          }
           onKeyDown={(event) => {
-            if (disabled) return
+            if (!interactive) return
             const key = (event as unknown as { key?: string }).key
             if (key === 'Enter' || key === ' ' || key === 'ArrowDown') {
               event.preventDefault()
-              setOpen(true)
+              changeOpen(true)
             }
           }}
-          tabIndex={disabled ? -1 : 0}>
-          {selectedOptions[0]?.icon ? (
+          tabIndex={interactive ? 0 : -1}>
+          {showLeadingIcon && selectedOptions[0]?.icon ? (
             <AppIcon
               name={selectedOptions[0].icon}
-              size={18}
+              size={inline ? 16 : 18}
               color={selectedOptions[0].color ?? palette.primary}
             />
-          ) : leadingIcon ? (
-            <AppIcon name={leadingIcon} size={18} color={palette.muted} />
+          ) : showLeadingIcon && leadingIcon ? (
+            <AppIcon
+              name={leadingIcon}
+              size={inline ? 16 : 18}
+              color={palette.muted}
+            />
           ) : null}
           <Text
             flex={1}
             minWidth={0}
             fontSize={15}
+            fontWeight={inline ? '600' : undefined}
             numberOfLines={1}
             color={hasSelection ? '$text' : '$tabIconDefault'}>
             {summary}
           </Text>
-          {!multiple && selectedOptions[0]?.badge ? (
+          {!inline && !multiple && selectedOptions[0]?.badge ? (
             <RecommendedDot label={selectedOptions[0].badge} />
           ) : null}
-          {!multiple && hasSelection && !disabled ? (
+          {!inline && !multiple && hasSelection && interactive ? (
             <XStack
               cursor="pointer"
               pressStyle={{ opacity: 0.6 }}
@@ -384,7 +434,19 @@ export function SearchSelect(props: SearchSelectProps) {
               <AppIcon name="close-circle" size={16} color="#64748B" />
             </XStack>
           ) : null}
-          <AppIcon name="chevron-down" size={18} color={palette.muted} />
+          {inline ? (
+            <XStack
+              className="inline-field-affordance"
+              width={16}
+              height={18}
+              alignItems="center"
+              justifyContent="center"
+              flexShrink={0}>
+              <AppIcon name="chevron-down" size={14} color={palette.muted} />
+            </XStack>
+          ) : (
+            <AppIcon name="chevron-down" size={18} color={palette.muted} />
+          )}
         </XStack>
       </Popover.Trigger>
 
@@ -419,7 +481,7 @@ export function SearchSelect(props: SearchSelectProps) {
               value={query}
               onChangeText={(text) => {
                 setQuery(text)
-                if (!open) setOpen(true)
+                if (!open) changeOpen(true)
               }}
               onKeyDown={onSearchKeyDown as never}
               aria-label={`Buscar ${ariaLabel}`}

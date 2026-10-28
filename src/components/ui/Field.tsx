@@ -3,8 +3,8 @@ import { Input, TextArea, Text, XStack, YStack, styled } from 'tamagui'
 import { CONTROL_HEIGHT, focusRing, CSS_TRANSITION, TYPO } from '@/constants/ui'
 
 // ═══════════════════════════════════════════════════════════════
-// 🎯 FOCO — mismo indicador para todos los campos: borde primario
-//    + halo suave. Evita el outline nativo del navegador.
+// 🎯 FOCO — mismo indicador para todos los campos: borde neutro
+//    claro, sólido, sin halo. Evita el outline nativo del navegador.
 // ═══════════════════════════════════════════════════════════════
 
 export const fieldFocusStyle = focusRing
@@ -31,7 +31,7 @@ const inputBase = {
     error: {
       true: {
         borderColor: '$expense',
-        focusStyle: { ...focusRing, borderColor: '$expense', shadowColor: '$expense' },
+        focusStyle: { ...focusRing, borderColor: '$expense' },
       },
     },
   } as const,
