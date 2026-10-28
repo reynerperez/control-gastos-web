@@ -21,7 +21,7 @@ Versión **web** del control de gastos personal. Se conecta a la **misma base de
 | Compras a Meses Sin Intereses: parcialidad mensual derivada, sin duplicar filas | Check «Comprar a meses sin intereses» en el alta |
 | Compromisos recurrentes (servicios, renta, suscripciones) y saldos MSI | `/compromisos` (pestañas MSI / Recurrentes) |
 | Proyección de MSI y servicios en la fecha límite de pago de cada tarjeta | Acordeón de «Periodos» en Movimientos |
-| Detalle del movimiento (incluye ubicación con enlace a mapas) | `/movimientos/:id` |
+| Detalle del movimiento (incluye ubicación con enlace a mapas) | `/movimientos/:id` (página completa) y side peek en la misma pestaña |
 | Desglose de ticket (ítems, sugerencias de compras pasadas, cierre rápido) | Modal «Desglosar ticket» |
 | Presupuestos mensuales por categoría con progreso | `/presupuestos` |
 | Ajustes: perfil y accesos | `/ajustes` |
@@ -29,7 +29,10 @@ Versión **web** del control de gastos personal. Se conecta a la **misma base de
 | Métodos de pago (CRUD propio) | `/ajustes/metodos-de-pago` |
 | Selector de periodo (mes, rango, todo el historial) | Modal de periodo, compartido entre pantallas |
 
-Diferencias propias de la web: layout con barra lateral (iconos en pantallas chicas), diálogos en lugar de pantallas modales, inputs de fecha nativos, geolocalización del navegador (best-effort, solo al crear) y refresco manual de datos.
+Diferencias propias de la web: layout con barra lateral (iconos en pantallas chicas), diálogos en lugar de pantallas modales, inputs de fecha nativos, geolocalización del navegador (best-effort, solo al crear), detalle en side peek (página completa al abrir en otra pestaña) y refresco automático al volver a la pestaña.
+
+> La lógica de recomendación de tarjetas está documentada en
+> [`docs/recomendacion-tarjetas.md`](docs/recomendacion-tarjetas.md).
 
 ## Cargos recurrentes y MSI
 

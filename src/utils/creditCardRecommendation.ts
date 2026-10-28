@@ -23,6 +23,10 @@ import { toISODate } from '@/utils/format'
  *   - `closing_day`: día de corte del mes (no se mueve).
  *   - `grace_days` + `grace_days_type`: días naturales o hábiles hasta el pago.
  *
+ * La recomendación siempre se calcula para HOY. Solo entran las tarjetas con
+ * configuración completa de corte y gracia; las demás siguen disponibles para
+ * usarse manualmente pero no se recomiendan ni se auto-seleccionan.
+ *
  * La fecha límite se calcula con `resolveDueDate`. Si cae en sábado, domingo
  * o día bancario inhábil, se mueve al siguiente día hábil.
  */
@@ -73,8 +77,12 @@ export function nextDueDate(
 }
 
 /**
- * Calcula el plan de cada tarjeta de crédito y devuelve la lista ordenada
- * de mayor a menor número de días de financiamiento.
+ * Calcula el plan de cada tarjeta de crédito recomendable y devuelve la lista
+ * ordenada de mayor a menor número de días de financiamiento.
+ *
+ * Solo se consideran tarjetas con `closing_day`, `grace_days` y
+ * `grace_days_type` configurados. El desempate sigue este orden:
+ * días de financiamiento → días de gracia → fecha de pago → corte → nombre.
  */
 export function getCreditCardPlans(
   paymentMethods: PaymentMethod[],
@@ -83,7 +91,13 @@ export function getCreditCardPlans(
 ): CreditCardPlan[] {
   const reference = startOfDay(today)
   return paymentMethods
-    .filter((method) => method.type === 'credit' && method.closing_day != null)
+    .filter(
+      (method) =>
+        method.type === 'credit' &&
+        method.closing_day != null &&
+        method.grace_days != null &&
+        method.grace_days_type != null
+    )
     .map((method) => {
       const closingDate = nextClosingDate(reference, method.closing_day as number)
       const due = nextDueDate(closingDate, method, holidays)
@@ -99,7 +113,14 @@ export function getCreditCardPlans(
         adjusted: due.adjusted,
       }
     })
-    .sort((a, b) => b.financingDays - a.financingDays)
+    .sort(
+      (a, b) =>
+        b.financingDays - a.financingDays ||
+        b.graceDays - a.graceDays ||
+        a.dueDate.getTime() - b.dueDate.getTime() ||
+        a.closingDate.getTime() - b.closingDate.getTime() ||
+        a.method.name.localeCompare(b.method.name, 'es')
+    )
 }
 
 /** Tarjeta recomendada (la de mayor financiamiento) o null si no hay. */

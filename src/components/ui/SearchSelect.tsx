@@ -27,10 +27,8 @@ export type SelectOption = {
   color?: string
   /** Texto secundario a la derecha (p. ej. "Crédito", "Débito") */
   hint?: string
-  /** Etiqueta destacada (p. ej. "Recomendado") */
+  /** Etiqueta destacada (p. ej. "Recomendado"); se muestra como punto */
   badge?: string
-  /** Palabras extra para la búsqueda (no se muestran) */
-  keywords?: string
 }
 
 type BaseProps = {
@@ -64,34 +62,94 @@ const normalize = (value: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 
-function filterOptions(options: SelectOption[], query: string) {
-  const q = normalize(query.trim())
-  if (!q) return options
-  return options.filter((option) =>
-    normalize(`${option.label} ${option.keywords ?? ''}`).includes(q)
+/** Diferencia de una sola letra (errata, letra extra o faltante). */
+function withinOneEdit(a: string, b: string) {
+  if (Math.abs(a.length - b.length) > 1) return false
+
+  let i = 0
+  let j = 0
+  let edits = 0
+
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1
+      j += 1
+      continue
+    }
+    edits += 1
+    if (edits > 1) return false
+    if (a.length > b.length) {
+      i += 1
+    } else if (a.length < b.length) {
+      j += 1
+    } else {
+      i += 1
+      j += 1
+    }
+  }
+
+  return edits + (a.length - i) + (b.length - j) <= 1
+}
+
+/** ¿Las letras de `query` aparecen en orden dentro de `text`? (abreviaturas) */
+function isSubsequence(query: string, text: string) {
+  let qi = 0
+  for (let ti = 0; ti < text.length && qi < query.length; ti += 1) {
+    if (text[ti] === query[qi]) qi += 1
+  }
+  return qi === query.length
+}
+
+/**
+ * Búsqueda permisiva solo por nombre:
+ * - sin distinguir mayúsculas, acentos ni puntuación;
+ * - coincidencia parcial en cualquier posición;
+ * - todas las palabras en cualquier orden;
+ * - tolera una errata por palabra y abreviaturas (“bva” → “BBVA”).
+ */
+function matchesLabel(label: string, query: string) {
+  const haystack = normalize(label)
+  const needle = normalize(query)
+  if (!needle) return true
+  if (haystack.includes(needle)) return true
+
+  const words = haystack.split(' ')
+  const tokens = needle.split(' ')
+  const everyTokenMatches = tokens.every((token) =>
+    words.some(
+      (word) =>
+        word.includes(token) || (token.length >= 3 && withinOneEdit(token, word))
+    )
+  )
+  if (everyTokenMatches) return true
+
+  return (
+    needle.length >= 3 &&
+    isSubsequence(needle.replace(/\s/g, ''), haystack.replace(/\s/g, ''))
   )
 }
 
-function OptionBadge({ label }: { label: string }) {
+function filterOptions(options: SelectOption[], query: string) {
+  if (!query.trim()) return options
+  return options.filter((option) => matchesLabel(option.label, query))
+}
+
+/** Punto morado que marca la opción recomendada, sin ocupar una línea extra. */
+function RecommendedDot({ label }: { label: string }) {
   return (
-    <XStack
-      flexShrink={0}
-      paddingHorizontal={6}
-      paddingVertical={1}
+    <View
+      width={7}
+      height={7}
       borderRadius="$full"
-      backgroundColor={palette.primary + '22'}
-      borderWidth={1}
-      borderColor={palette.primary + '44'}>
-      <Text
-        fontSize={9}
-        fontWeight="800"
-        color="$primary"
-        textTransform="uppercase"
-        letterSpacing={0.3}>
-        {label}
-      </Text>
-    </XStack>
+      backgroundColor={palette.primary}
+      flexShrink={0}
+      role="img"
+      aria-label={label}
+    />
   )
 }
 
@@ -133,12 +191,12 @@ function OptionRow({
       ) : option.color ? (
         <View width={10} height={10} borderRadius="$full" backgroundColor={option.color} />
       ) : null}
-      <Text flex={1} fontSize={14} color="$text" numberOfLines={1}>
+      <Text flex={1} minWidth={0} fontSize={14} color="$text" numberOfLines={1}>
         {option.label}
       </Text>
-      {option.badge ? <OptionBadge label={option.badge} /> : null}
+      {option.badge ? <RecommendedDot label={option.badge} /> : null}
       {option.hint ? (
-        <Text fontSize={12} color="$tabIconDefault">
+        <Text flexShrink={0} fontSize={12} color="$tabIconDefault">
           {option.hint}
         </Text>
       ) : null}
@@ -304,13 +362,14 @@ export function SearchSelect(props: SearchSelectProps) {
           ) : null}
           <Text
             flex={1}
+            minWidth={0}
             fontSize={15}
             numberOfLines={1}
             color={hasSelection ? '$text' : '$tabIconDefault'}>
             {summary}
           </Text>
           {!multiple && selectedOptions[0]?.badge ? (
-            <OptionBadge label={selectedOptions[0].badge} />
+            <RecommendedDot label={selectedOptions[0].badge} />
           ) : null}
           {!multiple && hasSelection && !disabled ? (
             <XStack

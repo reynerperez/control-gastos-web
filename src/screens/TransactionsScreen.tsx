@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Text, XStack, YStack } from 'tamagui'
 
 import { BorderedChip } from '@/components/ui/BorderedStack'
@@ -7,6 +6,7 @@ import { CategoryIcon } from '@/components/ui/CategoryIcon'
 import { TextInput } from '@/components/ui/Field'
 import { AppIcon } from '@/components/ui/Icon'
 import { MonthSelector } from '@/components/ui/MonthSelector'
+import { TransactionLink } from '@/components/ui/TransactionLink'
 import { palette } from '@/constants/theme'
 import { CONTROL_HEIGHT, focusRing, CSS_TRANSITION, TYPO } from '@/constants/ui'
 import { useAuth } from '@/contexts/AuthContext'
@@ -28,8 +28,9 @@ import {
   type CardPeriodGroup,
 } from '@/utils/paymentPeriods'
 import { getPaymentMethodIcon } from '@/utils/paymentMethod'
+import { stopLinkActivation } from '@/utils/linkClicks'
 import { capitalizeLabel, getUserInitials } from '@/utils/text'
-import { getUserDisplayName } from '@/utils/user'
+import { getTransactionAuthorName } from '@/utils/transactionAuthor'
 
 /** Fecha corta para rangos de ciclo: "16 oct" */
 const formatShortDate = (date: Date) =>
@@ -41,7 +42,6 @@ const formatShortDate = (date: Date) =>
  * totales del filtro y filas con desglose expandible.
  */
 export default function TransactionsScreen() {
-  const navigate = useNavigate()
   const { transactions, categories, paymentMethods, recurringCharges, loading } = useData()
   const { holidays } = useHolidays()
   const { period, bounds, setAll } = usePeriod()
@@ -513,7 +513,6 @@ export default function TransactionsScreen() {
                         <TransactionRow
                           key={transaction.id}
                           transaction={transaction}
-                          onOpen={() => navigate(`/movimientos/${transaction.id}`)}
                           onBreakdown={() => openBreakdown(transaction.id)}
                         />
                       ))}
@@ -521,7 +520,6 @@ export default function TransactionsScreen() {
                         installmentLines={group.installmentLines}
                         recurringLines={group.recurringLines}
                         total={group.projectedTotal}
-                        onOpenTransaction={(id) => navigate(`/movimientos/${id}`)}
                       />
                     </>
                   ) : null}
@@ -595,7 +593,6 @@ export default function TransactionsScreen() {
                     <TransactionRow
                       key={transaction.id}
                       transaction={transaction}
-                      onOpen={() => navigate(`/movimientos/${transaction.id}`)}
                       onBreakdown={() => openBreakdown(transaction.id)}
                     />
                   ))
@@ -764,14 +761,13 @@ function PeriodHeader({
 
 function TransactionRow({
   transaction,
-  onOpen,
   onBreakdown,
 }: {
   transaction: Transaction
-  onOpen: () => void
   onBreakdown: () => void
 }) {
   const { user } = useAuth()
+  const { householdMembers } = useData()
   const [expanded, setExpanded] = useState(false)
 
   const isIncome = transaction.type === 'income'
@@ -793,7 +789,7 @@ function TransactionRow({
     !!concept &&
     (!merchant ||
       concept.toLocaleLowerCase('es-MX') !== merchant.toLocaleLowerCase('es-MX'))
-  const userName = getUserDisplayName(user)
+  const userName = getTransactionAuthorName(transaction.user_id, user, householdMembers)
 
   const details = transaction.details ?? []
   const hasMultipleDetails = details.length > 1
@@ -806,27 +802,18 @@ function TransactionRow({
       borderLeftWidth={2}
       borderLeftColor={showPendingAction ? palette.warning : 'transparent'}>
       {/* Fila compacta: icono de categoría, título + metadatos y monto */}
-      <XStack
-        alignItems="center"
-        gap="$md"
-        paddingHorizontal="$md"
-        paddingVertical={9}
-        cursor="pointer"
-        style={{ transition: CSS_TRANSITION }}
-        hoverStyle={{ backgroundColor: '$surfaceHover' }}
-        pressStyle={{ opacity: 0.9 }}
-        onPress={onOpen}
-        tabIndex={0}
-        focusVisibleStyle={{ outlineWidth: 2, outlineColor: '$primary', outlineOffset: -2 }}
-        onKeyDown={(event) => {
-          const key = (event as unknown as { key?: string }).key
-          if (key === 'Enter' || key === ' ') {
-            event.preventDefault()
-            onOpen()
-          }
-        }}
-        role="button"
-        aria-label={`Abrir movimiento ${title}`}>
+      <TransactionLink
+        transactionId={transaction.id}
+        ariaLabel={`Abrir movimiento ${title}`}>
+        <XStack
+          alignItems="center"
+          gap="$md"
+          paddingHorizontal="$md"
+          paddingVertical={9}
+          cursor="pointer"
+          style={{ transition: CSS_TRANSITION }}
+          hoverStyle={{ backgroundColor: '$surfaceHover' }}
+          pressStyle={{ opacity: 0.9 }}>
         <YStack display="none" $gtXs={{ display: 'flex' }} flexShrink={0}>
           <CategoryIcon icon={categoryIcon} color={categoryColor} size={34} />
         </YStack>
@@ -960,7 +947,7 @@ function TransactionRow({
                 hoverStyle={{ opacity: 0.85 }}
                 pressStyle={{ opacity: 0.7 }}
                 onPress={(event) => {
-                  event.stopPropagation()
+                  stopLinkActivation(event)
                   onBreakdown()
                 }}
                 role="button"
@@ -980,7 +967,7 @@ function TransactionRow({
                 hoverStyle={{ opacity: 0.8 }}
                 pressStyle={{ opacity: 0.6 }}
                 onPress={(event) => {
-                  event.stopPropagation()
+                  stopLinkActivation(event)
                   setExpanded((value) => !value)
                 }}
                 role="button"
@@ -1036,7 +1023,7 @@ function TransactionRow({
               hoverStyle={{ backgroundColor: '$background' }}
               pressStyle={{ opacity: 0.6 }}
               onPress={(event) => {
-                event.stopPropagation()
+                stopLinkActivation(event)
                 onBreakdown()
               }}
               role="button"
@@ -1046,6 +1033,7 @@ function TransactionRow({
           ) : null}
         </YStack>
       </XStack>
+      </TransactionLink>
 
       {/* Desglose expandible con transición de altura */}
       {hasMultipleDetails ? (
@@ -1113,12 +1101,10 @@ function ProjectedCharges({
   installmentLines,
   recurringLines,
   total,
-  onOpenTransaction,
 }: {
   installmentLines: CardPeriodGroup['installmentLines']
   recurringLines: CardPeriodGroup['recurringLines']
   total: number
-  onOpenTransaction: (id: string) => void
 }) {
   if (installmentLines.length === 0 && recurringLines.length === 0) return null
 
@@ -1144,36 +1130,37 @@ function ProjectedCharges({
       {installmentLines.map((line) => {
         const detail = line.transaction.details?.[0]
         return (
-          <XStack
+          <TransactionLink
             key={line.id}
-            alignItems="center"
-            gap="$sm"
-            paddingVertical="$xs"
-            cursor="pointer"
-            hoverStyle={{ opacity: 0.82 }}
-            pressStyle={{ opacity: 0.7 }}
-            onPress={() => onOpenTransaction(line.transaction.id)}
-            role="button"
-            aria-label={`Abrir compra a MSI ${line.label}`}>
-            <CategoryIcon
-              icon={detail?.category?.icon ?? 'card'}
-              color={detail?.category?.color ?? palette.primary}
-              size={28}
-            />
-            <YStack flex={1} minWidth={0} gap={1}>
-              <Text fontSize={13} fontWeight="600" color="$text" numberOfLines={1}>
-                {line.label}
+            transactionId={line.transaction.id}
+            ariaLabel={`Abrir compra a MSI ${line.label}`}>
+            <XStack
+              alignItems="center"
+              gap="$sm"
+              paddingVertical="$xs"
+              cursor="pointer"
+              hoverStyle={{ opacity: 0.82 }}
+              pressStyle={{ opacity: 0.7 }}>
+              <CategoryIcon
+                icon={detail?.category?.icon ?? 'card'}
+                color={detail?.category?.color ?? palette.primary}
+                size={28}
+              />
+              <YStack flex={1} minWidth={0} gap={1}>
+                <Text fontSize={13} fontWeight="600" color="$text" numberOfLines={1}>
+                  {line.label}
+                </Text>
+                <Text fontSize={11} color="$tabIconDefault" numberOfLines={1}>
+                  MSI {line.installment.number}/{line.transaction.installments_count}
+                  {line.installment.paid ? ' · cubierta' : ''} · Pago{' '}
+                  {formatDateLabel(toISODate(line.installment.dueDate))}
+                </Text>
+              </YStack>
+              <Text fontSize={13} fontWeight="700" color={line.installment.paid ? '$tabIconDefault' : '$text'}>
+                {formatCurrency(line.amount)}
               </Text>
-              <Text fontSize={11} color="$tabIconDefault" numberOfLines={1}>
-                MSI {line.installment.number}/{line.transaction.installments_count}
-                {line.installment.paid ? ' · cubierta' : ''} · Pago{' '}
-                {formatDateLabel(toISODate(line.installment.dueDate))}
-              </Text>
-            </YStack>
-            <Text fontSize={13} fontWeight="700" color={line.installment.paid ? '$tabIconDefault' : '$text'}>
-              {formatCurrency(line.amount)}
-            </Text>
-          </XStack>
+            </XStack>
+          </TransactionLink>
         )
       })}
 

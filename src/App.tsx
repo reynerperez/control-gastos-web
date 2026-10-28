@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useNavigate } from 'rea
 import { Spinner, YStack } from 'tamagui'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { TransactionPeek } from '@/components/modals/TransactionPeek'
 import { palette } from '@/constants/theme'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { FiltersProvider } from '@/contexts/FiltersContext'
@@ -53,6 +54,7 @@ export default function App() {
                     </Route>
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
+                  <TransactionPeek />
                 </ModalsProvider>
               </DataProvider>
             </FiltersProvider>

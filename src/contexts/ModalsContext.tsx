@@ -41,6 +41,12 @@ interface ModalsContextValue {
   openPeriodPicker: () => void
   /** Abre el alta (sin id) o edición (con id) de un compromiso recurrente */
   openRecurringCharge: (id?: string) => void
+  /** Movimiento abierto en el side peek (null = cerrado) */
+  peekTransactionId: string | null
+  /** Abre el detalle de un movimiento en el side peek de la misma pestaña */
+  openTransactionPeek: (id: string) => void
+  /** Cierra el side peek */
+  closeTransactionPeek: () => void
   close: () => void
 }
 
@@ -48,8 +54,10 @@ const ModalsContext = createContext<ModalsContextValue | null>(null)
 
 export function ModalsProvider({ children }: { children: ReactNode }) {
   const [modal, setModal] = useState<ModalState>(null)
+  const [peekId, setPeekId] = useState<string | null>(null)
 
   const close = useCallback(() => setModal(null), [])
+  const closeTransactionPeek = useCallback(() => setPeekId(null), [])
 
   const value = useMemo<ModalsContextValue>(
     () => ({
@@ -58,9 +66,12 @@ export function ModalsProvider({ children }: { children: ReactNode }) {
       openFilters: () => setModal({ kind: 'filters' }),
       openPeriodPicker: () => setModal({ kind: 'period' }),
       openRecurringCharge: (id?: string) => setModal({ kind: 'recurring', id }),
+      peekTransactionId: peekId,
+      openTransactionPeek: (id: string) => setPeekId(id),
+      closeTransactionPeek,
       close,
     }),
-    [close]
+    [close, closeTransactionPeek, peekId]
   )
 
   return (

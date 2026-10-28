@@ -8,6 +8,7 @@ import { CSS_TRANSITION } from '@/constants/ui'
 import { useAuth } from '@/contexts/AuthContext'
 import { useModals } from '@/contexts/ModalsContext'
 import { useData } from '@/hooks/useData'
+import { useAutoRefresh } from '@/hooks/useAutoRefresh'
 import { getUserDisplayName } from '@/utils/user'
 
 // ═══════════════════════════════════════════════════════════════
@@ -54,6 +55,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth()
   const { openTransactionForm } = useModals()
   const { loading } = useData()
+
+  // Refresco al volver a la pestaña: el espacio compartido no usa realtime.
+  useAutoRefresh()
 
   const page = PAGE_TITLES.find((item) => item.match(location.pathname)) ?? PAGE_TITLES[0]
 

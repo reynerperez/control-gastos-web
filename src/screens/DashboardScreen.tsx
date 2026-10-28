@@ -8,6 +8,7 @@ import { DonutChart, type DonutSlice } from '@/components/ui/DonutChart'
 import { AppIcon } from '@/components/ui/Icon'
 import { MonthSelector } from '@/components/ui/MonthSelector'
 import { ProgressBar } from '@/components/ui/ProgressBar'
+import { TransactionLink } from '@/components/ui/TransactionLink'
 import { palette } from '@/constants/theme'
 import { CONTROL_HEIGHT, TYPO, CSS_TRANSITION } from '@/constants/ui'
 import { useHolidays } from '@/contexts/HolidaysContext'
@@ -380,34 +381,21 @@ export default function DashboardScreen() {
                       merchant.toLocaleLowerCase('es-MX'))
 
                 return (
-                  <XStack
+                  <TransactionLink
                     key={transaction.id}
-                    alignItems="center"
-                    gap="$md"
-                    paddingHorizontal="$md"
-                    paddingVertical={8}
-                    borderTopWidth={index === 0 ? 0 : 1}
-                    borderTopColor="$border"
-                    cursor="pointer"
-                    style={{ transition: CSS_TRANSITION }}
-                    hoverStyle={{ backgroundColor: '$surfaceHover' }}
-                    pressStyle={{ opacity: 0.8 }}
-                    onPress={() => navigate(`/movimientos/${transaction.id}`)}
-                    tabIndex={0}
-                    focusVisibleStyle={{
-                      outlineWidth: 2,
-                      outlineColor: '$primary',
-                      outlineOffset: -2,
-                    }}
-                    onKeyDown={(event) => {
-                      const key = (event as unknown as { key?: string }).key
-                      if (key === 'Enter' || key === ' ') {
-                        event.preventDefault()
-                        navigate(`/movimientos/${transaction.id}`)
-                      }
-                    }}
-                    role="button"
-                    aria-label={`Abrir movimiento ${title}`}>
+                    transactionId={transaction.id}
+                    ariaLabel={`Abrir movimiento ${title}`}>
+                    <XStack
+                      alignItems="center"
+                      gap="$md"
+                      paddingHorizontal="$md"
+                      paddingVertical={8}
+                      borderTopWidth={index === 0 ? 0 : 1}
+                      borderTopColor="$border"
+                      cursor="pointer"
+                      style={{ transition: CSS_TRANSITION }}
+                      hoverStyle={{ backgroundColor: '$surfaceHover' }}
+                      pressStyle={{ opacity: 0.8 }}>
                     <CategoryIcon
                       icon={detail?.category?.icon ?? (isIncome ? 'cash' : 'pricetag')}
                       color={categoryColor}
@@ -473,7 +461,8 @@ export default function DashboardScreen() {
                       {isIncome ? '+' : '-'}
                       {formatCurrency(getTransactionDisplayAmount(transaction))}
                     </Text>
-                  </XStack>
+                    </XStack>
+                  </TransactionLink>
                 )
               })
             )}

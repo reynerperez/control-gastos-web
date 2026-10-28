@@ -93,6 +93,27 @@ describe('resolveDueDate', () => {
     expect(result.adjusted).toBe(true)
   })
 
+  it('salta un festivo viernes y el fin de semana', () => {
+    // 5 dic + 20 = 25 dic (viernes festivo) → sábado/domingo → lunes 28.
+    const result = resolveDueDate(
+      date('2026-12-05'),
+      { grace_days: 20, grace_days_type: 'natural' },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-12-28')
+    expect(result.adjusted).toBe(true)
+  })
+
+  it('cuenta días hábiles desde el corte', () => {
+    const result = resolveDueDate(
+      date('2026-10-15'),
+      { grace_days: 5, grace_days_type: 'business' },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-10-22')
+    expect(result.adjusted).toBe(false)
+  })
+
   it('usa 20 días naturales por defecto', () => {
     const result = resolveDueDate(date('2026-10-15'), {}, holidays)
     expect(result.graceDays).toBe(20)
@@ -106,9 +127,19 @@ describe('nextClosingDate', () => {
     expect(toISODate(closing)).toBe('2026-02-28')
   })
 
+  it('ajusta el día 31 al 29 de febrero en año bisiesto', () => {
+    const closing = nextClosingDate(date('2028-02-10'), 31)
+    expect(toISODate(closing)).toBe('2028-02-29')
+  })
+
   it('si hoy es el día de corte, el corte es hoy', () => {
     const closing = nextClosingDate(date('2026-10-15'), 15)
     expect(toISODate(closing)).toBe('2026-10-15')
+  })
+
+  it('no mueve el corte si cae en fin de semana', () => {
+    const closing = nextClosingDate(date('2026-10-01'), 17)
+    expect(toISODate(closing)).toBe('2026-10-17')
   })
 })
 

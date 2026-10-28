@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Text, XStack, YStack } from 'tamagui'
 
 import { Button } from '@/components/ui/Button'
@@ -7,6 +6,7 @@ import { Card } from '@/components/ui/Card'
 import { CategoryIcon } from '@/components/ui/CategoryIcon'
 import { AppIcon } from '@/components/ui/Icon'
 import { ProgressBar } from '@/components/ui/ProgressBar'
+import { TransactionLink } from '@/components/ui/TransactionLink'
 import { palette } from '@/constants/theme'
 import { CSS_TRANSITION, TYPO } from '@/constants/ui'
 import { useHolidays } from '@/contexts/HolidaysContext'
@@ -50,7 +50,6 @@ function resolveMethod(
  *   • Aquí se ve el SALDO pendiente total y se administran/pausan/liquidan.
  */
 export default function CommitmentsScreen() {
-  const navigate = useNavigate()
   const { transactions, recurringCharges, paymentMethods, loading } = useData()
   const { holidays } = useHolidays()
   const { openTransactionForm, openRecurringCharge } = useModals()
@@ -221,7 +220,6 @@ export default function CommitmentsScreen() {
       ) : tab === 'msi' ? (
         <MsiSection
           plans={plans}
-          onOpenTransaction={(id) => navigate(`/movimientos/${id}`)}
           onCreate={() => openTransactionForm()}
         />
       ) : (
@@ -279,11 +277,9 @@ function SummaryCard({
 
 function MsiSection({
   plans,
-  onOpenTransaction,
   onCreate,
 }: {
   plans: InstallmentPlan[]
-  onOpenTransaction: (id: string) => void
   onCreate: () => void
 }) {
   const { settleInstallmentPlan } = useData()
@@ -375,19 +371,21 @@ function MsiSection({
             </YStack>
 
             <XStack alignItems="center" gap="$sm" flexWrap="wrap">
-              <XStack
-                alignItems="center"
-                gap={4}
-                cursor="pointer"
-                pressStyle={{ opacity: 0.7 }}
-                onPress={() => onOpenTransaction(plan.transaction.id)}
-                role="button"
-                aria-label={`Ver movimiento ${title}`}>
-                <AppIcon name="receipt-outline" size={14} color={palette.primary} />
-                <Text fontSize={12} fontWeight="700" color="$primary">
-                  Ver movimiento
-                </Text>
-              </XStack>
+              <TransactionLink
+                transactionId={plan.transaction.id}
+                ariaLabel={`Ver movimiento ${title}`}
+                style={{ display: 'inline-flex' }}>
+                <XStack
+                  alignItems="center"
+                  gap={4}
+                  cursor="pointer"
+                  pressStyle={{ opacity: 0.7 }}>
+                  <AppIcon name="receipt-outline" size={14} color={palette.primary} />
+                  <Text fontSize={12} fontWeight="700" color="$primary">
+                    Ver movimiento
+                  </Text>
+                </XStack>
+              </TransactionLink>
               <YStack flex={1} />
               {plan.nextInstallment ? (
                 <Text fontSize={11} color="$tabIconDefault">

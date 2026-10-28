@@ -3,7 +3,7 @@ import { Text, XStack, YStack } from 'tamagui'
 
 import { Button } from '@/components/ui/Button'
 import { DateField } from '@/components/ui/DateField'
-import { FormError, FormSection, SectionLabel, TextInput } from '@/components/ui/Field'
+import { FormError, FormSection, MultilineInput, SectionLabel, TextInput } from '@/components/ui/Field'
 import { AppIcon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
 import { SearchSelect, type SelectOption } from '@/components/ui/SearchSelect'
@@ -244,6 +244,7 @@ function TransactionFormDialog({
           merchant: merchant.trim() || null,
           payment_method_id: paymentMethodId,
           date,
+          note: note.trim() || null,
         })
       } else {
         // Ubicación solo al crear (best-effort, silencioso)
@@ -377,21 +378,22 @@ function TransactionFormDialog({
           </FormSection>
 
           <FormSection title="Fecha y nota">
-            <XStack gap="$md" flexWrap="wrap">
-              <YStack flex={1} minWidth={160} gap="$sm">
+            <YStack gap="$md">
+              <YStack width="100%" gap="$sm">
                 <SectionLabel>Fecha</SectionLabel>
                 <DateField value={date} onChange={setDate} ariaLabel="Fecha" />
               </YStack>
-              <YStack flex={2} minWidth={220} gap="$sm">
+              <YStack width="100%" gap="$sm">
                 <SectionLabel>Nota (opcional)</SectionLabel>
-                <TextInput
+                <MultilineInput
                   value={note}
                   onChangeText={setNote}
                   placeholder="Ej. Cena con amigos"
                   aria-label="Nota"
+                  minHeight={96}
                 />
               </YStack>
-            </XStack>
+            </YStack>
           </FormSection>
         </>
       ) : (
@@ -651,21 +653,22 @@ function TransactionFormDialog({
           </FormSection>
 
           <FormSection title="Fecha y nota">
-            <XStack gap="$md" flexWrap="wrap">
-              <YStack flex={1} minWidth={160} gap="$sm">
+            <YStack gap="$md">
+              <YStack width="100%" gap="$sm">
                 <SectionLabel>Fecha</SectionLabel>
                 <DateField value={date} onChange={setDate} ariaLabel="Fecha" />
               </YStack>
-              <YStack flex={2} minWidth={220} gap="$sm">
+              <YStack width="100%" gap="$sm">
                 <SectionLabel>Nota (opcional)</SectionLabel>
-                <TextInput
+                <MultilineInput
                   value={note}
                   onChangeText={setNote}
                   placeholder="Ej. Cena con amigos"
                   aria-label="Nota"
+                  minHeight={96}
                 />
               </YStack>
-            </XStack>
+            </YStack>
           </FormSection>
         </>
       )}
