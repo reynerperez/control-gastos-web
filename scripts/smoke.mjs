@@ -95,6 +95,9 @@ try {
   process.exit(2)
 }
 
+const buildInfo = await (await fetch(`${BASE}/version.json`)).json()
+const expectedVersion = `v${buildInfo.version} · ${buildInfo.shortId}`
+
 const profileDir = mkdtempSync(join(tmpdir(), 'cg-smoke-'))
 const chrome = spawn(
   CHROME_BIN,
@@ -264,6 +267,7 @@ try {
 
   const shellText = await visibleText()
   check('Shell: navegación y usuario', ['Resumen', 'Movimientos', 'Presupuestos', 'Ajustes', 'Usuario de Prueba'].every((t) => shellText.includes(t)))
+  check('Shell: versión de la compilación cargada', await evaluate(`document.querySelector('[data-app-version]')?.textContent === ${JSON.stringify(expectedVersion)}`))
   check('Resumen: balance, ingresos y gastos', await hasText('Balance del mes', 'Ingresos', 'Gastos', 'Gastos por categoría'))
   check(
     'Resumen: sidebar de escritorio',
@@ -350,9 +354,16 @@ try {
   await waitFor('pantalla de ajustes', `document.body.innerText.includes('Configuración')`)
   check('Ajustes: perfil y accesos a secciones', await hasText('smoke@test.local', 'Cerrar sesión', 'Categorías', 'Métodos de pago', 'Espacio compartido'))
 
+  check(
+    'Versión: etiquetas consistentes en título y Ajustes',
+    await evaluate(`(() => { const labels = [...document.querySelectorAll('[data-app-version]')]; return labels.length === 2 && labels.every(label => label.textContent === ${JSON.stringify(expectedVersion)}); })()`)
+  )
+  check('Versión: detalles de compilación disponibles', await hasText('Acerca de la app', 'Compilación', 'Generada', 'Entorno', 'Commit', buildInfo.shortId))
+
   // Espacio compartido (con sesión simulada no hay hogar: muestra el aviso)
   check('Ajustes: abre Espacio compartido', await clickElement(byAriaLabel('Espacio compartido')))
   await waitFor('pantalla de espacio compartido', `document.body.innerText.includes('Espacio compartido')`)
+  await waitFor('estado del hogar cargado', `document.body.innerText.includes('No encontramos tu espacio compartido')`)
   check(
     'Espacio compartido: explica el estado sin hogar',
     await hasText('No encontramos tu espacio compartido')
@@ -365,7 +376,42 @@ try {
   await waitFor('pantalla de métodos de pago', `document.body.innerText.includes('Agregar')`)
   check('Métodos de pago: abre modal', await clickElement(byAriaLabel('Agregar método de pago')))
   await waitFor('modal de método de pago', `document.body.innerText.toLowerCase().includes('día de corte') || document.body.innerText.toLowerCase().includes('nombre')`)
-  check('Modal pago: tipos y nombre', await hasText('Nombre', 'Efectivo', 'Débito', 'Crédito'))
+  check('Modal pago: tipos y nombre', await hasText('Nombre', 'Efectivo', 'Débito', 'Crédito', 'Departamental'))
+
+  // Crédito con día fijo de pago
+  check('Modal pago: elige Crédito', await clickElement(byAriaLabel('Tipo Crédito')))
+  await waitFor('campos de crédito', `document.body.innerText.toLowerCase().includes('fecha de pago')`)
+  check(
+    'Modal pago: opciones de fecha de pago',
+    await hasText('Día de corte', 'Fecha de pago', 'Días de gracia', 'Día fijo del mes')
+  )
+  await clickElement(`document.querySelector('input[aria-label="Día de corte"]')`)
+  await send('Input.insertText', { text: '9' })
+  check('Modal pago: elige día fijo', await clickElement(byAriaLabel('Día fijo del mes')))
+  await waitFor('campo de día de pago', `!!document.querySelector('input[aria-label="Día de pago fijo"]')`)
+  await clickElement(`document.querySelector('input[aria-label="Día de pago fijo"]')`)
+  await send('Input.insertText', { text: '9' })
+  await sleep(350)
+  check(
+    'Modal pago: vista previa de día fijo',
+    await hasText('Se paga el día 9 de cada mes', 'fecha exacta')
+  )
+
+  check('Modal pago: elige Departamental', await clickElement(byAriaLabel('Tipo Departamental')))
+  await sleep(250)
+  check(
+    'Modal pago: departamental conserva corte y día fijo',
+    await evaluate(`document.querySelector('input[aria-label="Día de corte"]').value === '9' && document.querySelector('input[aria-label="Día de pago fijo"]').value === '9'`)
+  )
+  check('Modal pago: departamental explica su exclusión', await hasText('no participa en las recomendaciones'))
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await sleep(250)
+  check(
+    'Modal pago: tipos sin desbordamiento en móvil',
+    await evaluate(`Array.from(document.querySelectorAll('[aria-label^="Tipo "]')).filter(el => el.getAttribute('aria-label') !== 'Tipo de días').every(el => { const rect = el.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1 })`)
+  )
+  await send('Emulation.clearDeviceMetricsOverride')
+
   await escapeKey()
   await sleep(400)
 

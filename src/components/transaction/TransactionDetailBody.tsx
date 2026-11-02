@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { getPaymentMethodColor, getPaymentMethodLabel, getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { BorderedView } from '@/components/ui/BorderedStack'
 import { Card } from '@/components/ui/Card'
 import { CategoryIcon } from '@/components/ui/CategoryIcon'
@@ -14,12 +15,10 @@ import { useModals } from '@/contexts/ModalsContext'
 import { useData } from '@/hooks/useData'
 import type { TransactionEditController } from '@/hooks/useTransactionEdit'
 import type {
-  PaymentMethodType,
   Transaction,
 } from '@/types'
-import { formatCurrency } from '@/utils/format'
+import { formatCurrency, formatDateLabel, toISODate } from '@/utils/format'
 import { getInstallmentPlan } from '@/utils/installments'
-import { getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { getTransactionAuthorName } from '@/utils/transactionAuthor'
 import {
   InlineAmountField,
@@ -34,15 +33,9 @@ import { activateInlineField } from '@/utils/inlineFocus'
 
 const NO_CATEGORY_ID = '__sin_categoria__'
 
-const paymentMethodColor = (type: PaymentMethodType) =>
-  type === 'credit'
-    ? palette.warning
-    : type === 'debit'
-      ? palette.primary
-      : palette.muted
+const paymentMethodColor = getPaymentMethodColor
 
-const paymentMethodLabel = (type: PaymentMethodType) =>
-  type === 'credit' ? 'Crédito' : type === 'debit' ? 'Débito' : 'Efectivo'
+const paymentMethodLabel = getPaymentMethodLabel
 
 /**
  * Cuerpo del detalle, compartido por la página y el side peek.
@@ -145,6 +138,12 @@ export function TransactionDetailBody({
             type={type}
           />
 
+          {plan ? (
+            <Text fontSize={11} color="$tabIconDefault">
+              Monto total de la compra
+            </Text>
+          ) : null}
+
           <InlineDateField
             value={edit.draft.date}
             onChange={(value) => edit.setField('date', value)}
@@ -220,9 +219,12 @@ export function TransactionDetailBody({
             />
           </XStack>
           <Text fontSize={11} color="$tabIconDefault">
-            Las parcialidades se proyectan automáticamente en el periodo de pago de la
-            tarjeta. El total de la compra no se cuenta completo en el mes. El plan no se
-            edita aquí: elimina el movimiento si necesitas recrearlo.
+            El monto superior es el total de la compra. Cada parcialidad se cuenta en su
+            mes de pago; la primera vence el{' '}
+            {plan.installments[0]
+              ? formatDateLabel(toISODate(plan.installments[0].dueDate))
+              : '—'}
+            . El plan no se edita aquí: elimina el movimiento si necesitas recrearlo.
           </Text>
         </BorderedView>
       ) : null}

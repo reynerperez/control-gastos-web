@@ -95,6 +95,14 @@ const base = {
 }
 
 describe('buildCardPeriodGroups', () => {
+  it('conserva los mismos importes y vencimientos al reclasificar como departamental', () => {
+    const departmental: PaymentMethod = { ...card, type: 'departmental' }
+    const options = { ...base, mode: 'month' as const, bounds: { start: '2026-12-01', end: '2026-12-31' } }
+    const expected = buildCardPeriodGroups(options)
+    expect(expected).toHaveLength(1)
+    expect(buildCardPeriodGroups({ ...options, card: departmental, paymentMethods: [departmental] })).toEqual(expected)
+  })
+
   it('incluye el ciclo completo de un periodo pagado en octubre', () => {
     const groups = buildCardPeriodGroups({
       ...base,
@@ -138,6 +146,41 @@ describe('buildCardPeriodGroups', () => {
     // La primera parcialidad ya está en el movimiento, no se duplica.
     expect(group.installmentLines).toHaveLength(0)
     expect(group.total).toBe(-1500)
+  })
+
+  it.each(['credit', 'departmental'] as const)('agrupa una tarjeta %s con día fijo por su fecha de pago', (type) => {
+    const fixed: PaymentMethod = {
+      ...card,
+      id: 'fixed',
+      name: 'Departamental',
+      type,
+      closing_day: 9,
+      due_day: 9,
+      grace_days: null,
+      grace_days_type: undefined,
+    }
+    const fixedTransactions: Transaction[] = [
+      makeTransaction('sep15', '2026-09-15', 300, {
+        payment_method_id: fixed.id,
+      }),
+    ]
+
+    const groups = buildCardPeriodGroups({
+      card: fixed,
+      transactions: fixedTransactions,
+      recurringCharges: [],
+      paymentMethods: [fixed],
+      holidays,
+      mode: 'month',
+      bounds: { start: '2026-11-01', end: '2026-11-30' },
+      today: new Date(2026, 9, 19),
+    })
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0].period.key).toBe('2026-10-09')
+    expect(toISODate(groups[0].period.dueDate)).toBe('2026-11-09')
+    expect(groups[0].period.dueDateMode).toBe('fixed_day')
+    expect(groups[0].transactions.map((t) => t.id)).toEqual(['sep15'])
   })
 
   it('en todo el historial limita los recurrentes a 12 meses', () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { getPaymentMethodColor, isFinancedPaymentMethod, getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { BorderedChip } from '@/components/ui/BorderedStack'
 import { CategoryIcon } from '@/components/ui/CategoryIcon'
 import { TextInput } from '@/components/ui/Field'
@@ -21,13 +22,20 @@ import { formatCurrency, formatDateLabel, formatMonthLabel, toISODate } from '@/
 import {
   getTransactionDisplayAmount,
   isInstallmentTransaction,
+  type Installment,
+  type InstallmentPlan,
 } from '@/utils/installments'
+import {
+  buildMovementEntries,
+  getEntrySignedAmount,
+  type MovementEntry,
+} from '@/utils/movementLedger'
 import {
   buildCardPeriodGroups,
   RECURRING_PROJECTION_MONTHS,
   type CardPeriodGroup,
 } from '@/utils/paymentPeriods'
-import { getPaymentMethodIcon } from '@/utils/paymentMethod'
+import { formatCreditPaymentSchedule } from '@/utils/paymentSchedule'
 import { stopLinkActivation } from '@/utils/linkClicks'
 import { capitalizeLabel, getUserInitials } from '@/utils/text'
 import { getTransactionAuthorName } from '@/utils/transactionAuthor'
@@ -103,55 +111,85 @@ export default function TransactionsScreen() {
     [typeFilter, onlyPending, selectedCategories, selectedPaymentMethods, query]
   )
 
-  const filtered = useMemo(() => {
-    return transactions.filter(
-      (transaction) =>
-        isWithinPeriod(transaction.date, bounds) &&
-        matchesNonDateFilters(transaction)
-    )
-  }, [transactions, bounds, matchesNonDateFilters])
+  /**
+   * Filas efectivas por mes: una compra a MSI genera una fila informativa en
+   * su mes y una fila por parcialidad en cada mes de pago.
+   */
+  const ledgerEntries = useMemo(
+    () =>
+      buildMovementEntries({
+        transactions,
+        paymentMethods,
+        holidays,
+        includeMsiPurchaseInfo: true,
+      }),
+    [transactions, paymentMethods, holidays]
+  )
+
+  const monthlyEntries = useMemo(
+    () =>
+      ledgerEntries.filter(
+        (entry) =>
+          isWithinPeriod(entry.date, bounds) &&
+          matchesNonDateFilters(entry.transaction)
+      ),
+    [ledgerEntries, bounds, matchesNonDateFilters]
+  )
 
   const total = useMemo(
     () =>
-      filtered.reduce((sum, transaction) => {
-        const amount = getTransactionDisplayAmount(transaction)
-        return sum + (transaction.type === 'income' ? amount : -amount)
-      }, 0),
-    [filtered]
+      monthlyEntries.reduce(
+        (sum, entry) => sum + getEntrySignedAmount(entry),
+        0
+      ),
+    [monthlyEntries]
   )
 
-  // Agrupa por mes respetando el orden (la BD ya devuelve por fecha desc)
+  // Agrupa por mes respetando el orden (el ledger ya viene por fecha desc)
   const groups = useMemo(() => {
     const map = new Map<
       string,
-      { key: string; label: string; transactions: Transaction[]; total: number }
+      {
+        key: string
+        label: string
+        entries: MovementEntry[]
+        total: number
+        transactionCount: number
+        installmentCount: number
+      }
     >()
-    for (const transaction of filtered) {
-      const [year, month] = transaction.date.split('-').map(Number)
+    for (const entry of monthlyEntries) {
+      const [year, month] = entry.date.split('-').map(Number)
       const key = `${year}-${String(month).padStart(2, '0')}`
       let group = map.get(key)
       if (!group) {
         group = {
           key,
           label: formatMonthLabel(new Date(year, month - 1, 1)),
-          transactions: [],
+          entries: [],
           total: 0,
+          transactionCount: 0,
+          installmentCount: 0,
         }
         map.set(key, group)
       }
-      group.transactions.push(transaction)
-      const amount = getTransactionDisplayAmount(transaction)
-      group.total += transaction.type === 'income' ? amount : -amount
+      group.entries.push(entry)
+      group.total += getEntrySignedAmount(entry)
+      if (entry.kind === 'msi-installment') {
+        group.installmentCount += 1
+      } else {
+        group.transactionCount += 1
+      }
     }
     return [...map.values()]
-  }, [filtered])
+  }, [monthlyEntries])
 
   // Agrupación por periodo de facturación: solo aplica cuando el filtro tiene
   // exactamente una tarjeta de crédito (los ciclos dependen de su día de corte).
   const activeCreditCard = useMemo(() => {
     if (selectedPaymentMethods.length !== 1) return null
     const method = paymentMethods.find((entry) => entry.id === selectedPaymentMethods[0])
-    return method && method.type === 'credit' && method.closing_day != null ? method : null
+    return method && isFinancedPaymentMethod(method.type) && method.closing_day != null ? method : null
   }, [selectedPaymentMethods, paymentMethods])
 
   useEffect(() => {
@@ -239,8 +277,13 @@ export default function TransactionsScreen() {
     )
   }, [periodGroups])
 
-  const displayCount = periodSummary?.transactions ?? filtered.length
-  const displayProjectedCount = periodSummary?.projected ?? 0
+  const monthlyTransactionCount = monthlyEntries.filter(
+    (entry) => entry.kind !== 'msi-installment'
+  ).length
+  const monthlyInstallmentCount = monthlyEntries.length - monthlyTransactionCount
+  const displayCount = periodSummary?.transactions ?? monthlyTransactionCount
+  const displayExtraCount = periodSummary?.projected ?? monthlyInstallmentCount
+  const displayExtraKind: 'projected' | 'msi' = periodGroups ? 'projected' : 'msi'
   const displayTotal = periodSummary?.total ?? total
 
   return (
@@ -374,7 +417,7 @@ export default function TransactionsScreen() {
                 key={methodId}
                 label={method.name}
                 icon={getPaymentMethodIcon(method.type)}
-                color={palette.primary}
+                color={getPaymentMethodColor(method.type)}
                 onRemove={() => togglePaymentMethod(methodId)}
               />
             )
@@ -410,13 +453,7 @@ export default function TransactionsScreen() {
           <XStack alignItems="center" gap={4}>
             <AppIcon name="card-outline" size={13} color={palette.muted} />
             <Text fontSize={11} color="$tabIconDefault">
-              {activeCreditCard.name} · Corte {activeCreditCard.closing_day}
-              {activeCreditCard.grace_days != null
-                ? ` · Pago ${activeCreditCard.grace_days} días ${activeCreditCard.grace_days_type === 'business'
-                  ? 'hábiles'
-                  : 'naturales'
-                }`
-                : ''}
+              {activeCreditCard.name} · {formatCreditPaymentSchedule(activeCreditCard)}
             </Text>
           </XStack>
         </XStack>
@@ -458,10 +495,7 @@ export default function TransactionsScreen() {
       {/* Totales del filtro */}
       <XStack justifyContent="space-between" alignItems="center" paddingHorizontal="$xs">
         <Text fontSize={12} fontWeight="500" color="$tabIconDefault">
-          {displayCount} movimiento{displayCount === 1 ? '' : 's'}
-          {displayProjectedCount > 0
-            ? ` + ${displayProjectedCount} proyectado${displayProjectedCount === 1 ? '' : 's'}`
-            : ''}
+          {formatMovementSummary(displayCount, displayExtraCount, displayExtraKind)}
         </Text>
         <Text fontSize={14} fontWeight="800" color={displayTotal >= 0 ? '$income' : '$expense'}>
           {displayTotal >= 0 ? '+' : ''}
@@ -528,7 +562,7 @@ export default function TransactionsScreen() {
             })}
           </YStack>
         )
-      ) : filtered.length === 0 ? (
+      ) : monthlyEntries.length === 0 ? (
         <YStack alignItems="center" gap="$md" paddingVertical="$xxl">
           <AppIcon name="receipt-outline" size={44} color={palette.muted} />
           <Text color="$tabIconDefault" textAlign="center">
@@ -573,7 +607,7 @@ export default function TransactionsScreen() {
                       {group.label}
                     </Text>
                     <Text fontSize={11} fontWeight="600" color="$tabIconDefault">
-                      · {group.transactions.length}
+                      · {formatGroupCount(group.transactionCount, group.installmentCount)}
                     </Text>
                   </XStack>
                   {groups.length > 1 ? (
@@ -589,11 +623,22 @@ export default function TransactionsScreen() {
                 </XStack>
 
                 {!collapsed
-                  ? group.transactions.map((transaction) => (
+                  ? group.entries.map((entry) => (
                     <TransactionRow
-                      key={transaction.id}
-                      transaction={transaction}
-                      onBreakdown={() => openBreakdown(transaction.id)}
+                      key={entry.id}
+                      transaction={entry.transaction}
+                      onBreakdown={() => openBreakdown(entry.transaction.id)}
+                      displayAmount={entry.displayAmount}
+                      displayDate={entry.date}
+                      muted={entry.muted}
+                      installment={
+                        entry.kind === 'msi-installment'
+                          ? entry.installment
+                          : undefined
+                      }
+                      msiPurchase={
+                        entry.kind === 'msi-purchase' ? entry.plan : undefined
+                      }
                     />
                   ))
                   : null}
@@ -759,12 +804,48 @@ function PeriodHeader({
   )
 }
 
+function formatMovementSummary(
+  count: number,
+  extra: number,
+  kind: 'projected' | 'msi'
+) {
+  const movements = `${count} movimiento${count === 1 ? '' : 's'}`
+  if (extra <= 0) return movements
+  const extraText =
+    kind === 'projected'
+      ? `${extra} proyectado${extra === 1 ? '' : 's'}`
+      : `${extra} parcialidad${extra === 1 ? '' : 'es'} MSI`
+  if (count === 0) return extraText
+  return `${movements} + ${extraText}`
+}
+
+function formatGroupCount(transactions: number, installments: number) {
+  const parts: string[] = []
+  if (transactions > 0) parts.push(`${transactions} mov.`)
+  if (installments > 0) {
+    parts.push(
+      `${installments} parcialidad${installments === 1 ? '' : 'es'} MSI`
+    )
+  }
+  return parts.length > 0 ? parts.join(' + ') : '0 mov.'
+}
+
 function TransactionRow({
   transaction,
   onBreakdown,
+  displayAmount,
+  displayDate,
+  muted = false,
+  installment,
+  msiPurchase,
 }: {
   transaction: Transaction
   onBreakdown: () => void
+  displayAmount?: number
+  displayDate?: string
+  muted?: boolean
+  installment?: Installment
+  msiPurchase?: InstallmentPlan
 }) {
   const { user } = useAuth()
   const { householdMembers } = useData()
@@ -774,7 +855,8 @@ function TransactionRow({
   const isPending = transaction.breakdown_status === 'pending'
   const paymentMethod = transaction.payment_method
   const isMSI = isInstallmentTransaction(transaction)
-  const displayAmount = getTransactionDisplayAmount(transaction)
+  const rowAmount = displayAmount ?? getTransactionDisplayAmount(transaction)
+  const rowDate = displayDate ?? transaction.date
 
   const primaryDetail = transaction.details?.[0]
   const categoryIcon = primaryDetail?.category?.icon ?? (isIncome ? 'cash' : 'pricetag')
@@ -876,7 +958,7 @@ function TransactionRow({
           <XStack alignItems="center" gap={8} flexWrap="wrap" minWidth={0}>
             <CategoryTag color={categoryColor} label={categoryName} />
             <Text fontSize={11} color="$tabIconDefault">
-              {formatDateLabel(transaction.date)}
+              {formatDateLabel(rowDate)}
             </Text>
             <XStack
               alignItems="center"
@@ -903,7 +985,43 @@ function TransactionRow({
                 {getUserInitials(userName)}
               </Text>
             </XStack>
-            {isMSI ? (
+            {msiPurchase ? (
+              <XStack
+                alignItems="center"
+                gap={4}
+                paddingHorizontal={7}
+                paddingVertical={1}
+                borderRadius="$full"
+                backgroundColor={palette.muted + '14'}
+                flexShrink={0}>
+                <Text fontSize={10} fontWeight="800" letterSpacing={0.1} color="$tabIconDefault">
+                  Compra a {msiPurchase.count} MSI
+                </Text>
+                <Text fontSize={10} color="$tabIconDefault">
+                  No cuenta · 1er pago{' '}
+                  {msiPurchase.installments[0]
+                    ? formatDateLabel(toISODate(msiPurchase.installments[0].dueDate))
+                    : '—'}
+                </Text>
+              </XStack>
+            ) : installment ? (
+              <XStack
+                alignItems="center"
+                gap={4}
+                paddingHorizontal={6}
+                paddingVertical={1}
+                borderRadius="$full"
+                backgroundColor="$primaryLight"
+                flexShrink={0}>
+                <Text fontSize={10} fontWeight="800" letterSpacing={0.1} color="$primary">
+                  MSI {installment.number}/{transaction.installments_count}
+                </Text>
+                <Text fontSize={10} color="$tabIconDefault">
+                  Pago {formatDateLabel(toISODate(installment.dueDate))}
+                  {installment.paid ? ' · pagada' : ''}
+                </Text>
+              </XStack>
+            ) : isMSI ? (
               <XStack
                 alignItems="center"
                 gap={4}
@@ -991,10 +1109,11 @@ function TransactionRow({
             fontSize={14}
             fontWeight="800"
             letterSpacing={-0.1}
-            color={isIncome ? '$income' : '$expense'}
+            color={muted ? '$tabIconDefault' : isIncome ? '$income' : '$expense'}
+            opacity={muted ? 0.65 : 1}
             style={{ fontVariantNumeric: 'tabular-nums' }}>
             {isIncome ? '+' : '-'}
-            {formatCurrency(displayAmount)}
+            {formatCurrency(rowAmount)}
           </Text>
           {paymentMethod ? (
             <Text fontSize={10} color="$tabIconDefault" numberOfLines={1} maxWidth={130}>

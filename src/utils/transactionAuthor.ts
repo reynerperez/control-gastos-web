@@ -5,8 +5,7 @@ import { getUserDisplayName } from '@/utils/user';
 
 /**
  * Nombre del autor real de un movimiento dentro del espacio compartido.
- * En el móvil no aplica porque cada quien ve solo sus datos, pero en web
- * el hogar comparte los movimientos y hay que distinguir quién los registró.
+ * El hogar comparte movimientos en web y móvil; se distingue quién los registró.
  */
 export function getTransactionAuthorName(
   userId: string | null | undefined,

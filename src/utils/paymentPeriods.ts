@@ -1,3 +1,4 @@
+import { isFinancedPaymentMethod } from '@/utils/paymentMethod'
 import {
   PaymentMethod,
   RecurringCharge,
@@ -122,7 +123,7 @@ export function buildCardPeriodGroups({
   today = new Date(),
   projectionMonths = 12,
 }: BuildCardPeriodGroupsParams): CardPeriodGroup[] {
-  if (card.type !== 'credit' || card.closing_day == null) return []
+  if (!isFinancedPaymentMethod(card.type) || card.closing_day == null) return []
 
   const periods = new Map<string, StatementPeriod>()
   const ensurePeriod = (period: StatementPeriod | null) => {

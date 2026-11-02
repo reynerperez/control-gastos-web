@@ -8,29 +8,47 @@ export type { GraceDaysType } from '@/types'
  *
  * Reglas:
  *   • El día de corte NO se mueve.
- *   • La fecha de pago = corte + días de gracia.
- *   • Días naturales: calendario normal. Si cae en inhábil, se mueve al
- *     siguiente día hábil.
+ *   • Dos modos de pago:
+ *       - Días de gracia: pago = corte + `grace_days` (naturales o hábiles).
+ *         Si cae en inhábil, se mueve al siguiente día hábil.
+ *       - Día fijo: pago = primer día `due_day` posterior al corte. La fecha
+ *         es exacta: no se recorre a día hábil.
+ *   • Días naturales: calendario normal.
  *   • Días hábiles: se cuentan saltando fines de semana y días bancarios
  *     inhábiles (calendario CNBV).
  *   • Sábados, domingos y días inhábiles nunca son días hábiles.
  */
 
-export interface GraceConfig {
+/** Cómo se determina la fecha límite de pago. */
+export type DueDateMode = 'grace_days' | 'fixed_day'
+
+export interface DueDateConfig {
   grace_days?: number | null
   grace_days_type?: GraceDaysType | null
+  /** Día fijo de pago (1–31). Si existe, sustituye a los días de gracia. */
+  due_day?: number | null
 }
 
+/** Nombre anterior, conservado para no romper imports existentes. */
+export type GraceConfig = DueDateConfig
+
 export interface DueDateResult {
-  /** Fecha calculada antes de recorrer inhábiles (corte + gracia) */
+  /** Fecha calculada antes de recorrer inhábiles (corte + gracia o día fijo) */
   rawDueDate: Date
   dueDate: Date
-  /** Días de gracia usados */
+  /** Modo usado para calcular la fecha. */
+  mode: DueDateMode
+  /** Día fijo configurado, o null en modo de días de gracia. */
+  dueDay: number | null
+  /**
+   * Días efectivos entre el corte y la fecha teórica de pago. En modo de
+   * gracia es el valor configurado; en modo fijo se usa para desempates.
+   */
   graceDays: number
   graceDaysType: GraceDaysType
   /** true si se usó el valor por defecto porque la tarjeta no tenía config */
   estimated: boolean
-  /** true si la fecha se movió por caer en inhábil */
+  /** true si la fecha se movió por caer en inhábil (solo modo gracia) */
   adjusted: boolean
 }
 
@@ -103,15 +121,55 @@ export function addBusinessDays(
 }
 
 /**
+ * Primer día `dueDay` estrictamente posterior al corte. Si el día no existe
+ * en el mes (31 en febrero), se ajusta al último día del mes. Si el día
+ * ajustado coincide con el corte, se avanza al mes siguiente.
+ */
+export function nextFixedDueDate(closingDate: Date, dueDay: number): Date {
+  const closing = startOfDay(closingDate)
+  const year = closing.getFullYear()
+  const month = closing.getMonth()
+  const day = clampDay(year, month, dueDay)
+  const candidate = new Date(year, month, day)
+  if (candidate.getTime() > closing.getTime()) return candidate
+  const nextMonth = month + 1
+  return new Date(year, nextMonth, clampDay(year, nextMonth, dueDay))
+}
+
+/**
  * Calcula la fecha límite de pago a partir del corte.
- * Siempre aplica la regla legal: si la fecha cae en inhábil, se mueve al
- * siguiente día hábil. El corte nunca se ajusta.
+ *
+ * - Modo de días de gracia: aplica la regla legal; si la fecha cae en
+ *   inhábil, se mueve al siguiente día hábil. El corte nunca se ajusta.
+ * - Modo de día fijo: la fecha es exacta y NO se recorre a día hábil.
  */
 export function resolveDueDate(
   closingDate: Date,
-  config: GraceConfig,
+  config: DueDateConfig,
   holidays: HolidaySet = EMPTY_HOLIDAYS
 ): DueDateResult {
+  const fixedDay = config.due_day
+  const hasFixedDay =
+    fixedDay != null &&
+    Number.isInteger(fixedDay) &&
+    fixedDay >= 1 &&
+    fixedDay <= 31
+
+  if (hasFixedDay) {
+    const rawDue = nextFixedDueDate(closingDate, fixedDay)
+    return {
+      rawDueDate: rawDue,
+      // Fecha exacta: no se recorre por fin de semana ni por festivo.
+      dueDate: rawDue,
+      mode: 'fixed_day',
+      dueDay: fixedDay,
+      graceDays: Math.max(0, daysBetween(closingDate, rawDue)),
+      graceDaysType: 'natural',
+      estimated: false,
+      adjusted: false,
+    }
+  }
+
   const estimated =
     config.grace_days == null || config.grace_days_type == null
   const graceDays = Math.min(
@@ -130,6 +188,8 @@ export function resolveDueDate(
   return {
     rawDueDate: rawDue,
     dueDate,
+    mode: 'grace_days',
+    dueDay: null,
     graceDays,
     graceDaysType,
     estimated,

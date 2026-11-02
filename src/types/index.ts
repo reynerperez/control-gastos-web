@@ -1,6 +1,6 @@
 export type TransactionType = 'income' | 'expense';
 export type BreakdownStatus = 'pending' | 'completed';
-export type PaymentMethodType = 'debit' | 'credit' | 'cash';
+export type PaymentMethodType = 'debit' | 'credit' | 'departmental' | 'cash';
 /** Cómo se cuentan los días de gracia de una tarjeta. */
 export type GraceDaysType = 'natural' | 'business';
 
@@ -62,6 +62,12 @@ export interface PaymentMethod {
   /** Días de gracia desde el corte */
   grace_days?: number | null;
   grace_days_type?: GraceDaysType;
+  /**
+   * Día fijo de pago (1–31). Si está definido, sustituye a los días de
+   * gracia: la fecha límite es el primer día `due_day` posterior al corte,
+   * sin ajuste a día hábil. Si es null, se usa `grace_days`.
+   */
+  due_day?: number | null;
   created_at: string;
 }
 

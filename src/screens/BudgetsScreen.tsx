@@ -1,3 +1,5 @@
+import { useHolidays } from '@/contexts/HolidaysContext'
+import { buildMovementEntries, getEntryCategoryAmounts } from '@/utils/movementLedger';
 import { useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
@@ -15,7 +17,6 @@ import { usePeriod } from '@/contexts/PeriodContext'
 import { useData } from '@/hooks/useData'
 import { Category } from '@/types'
 import { formatCurrency, toMonthKey } from '@/utils/format'
-import { getEffectiveDetailAmount } from '@/utils/installments'
 
 /**
  * Presupuestos — equivale a `app/(tabs)/budgets.tsx`:
@@ -23,8 +24,9 @@ import { getEffectiveDetailAmount } from '@/utils/installments'
  * diálogo para asignar / editar / eliminar el presupuesto mensual.
  */
 export default function BudgetsScreen() {
-  const { categories, transactions, budgets, setBudget, deleteBudget } = useData()
+  const { categories, transactions, paymentMethods, budgets, setBudget, deleteBudget } = useData()
   const { period } = usePeriod()
+  const { holidays } = useHolidays()
   const { openPeriodPicker } = useModals()
   const [editing, setEditing] = useState<{ category: Category; amount: number | null } | null>(null)
   const [amountInput, setAmountInput] = useState('')
@@ -39,33 +41,17 @@ export default function BudgetsScreen() {
     [categories]
   )
 
+  const monthEntries = useMemo(() => buildMovementEntries({ transactions, paymentMethods, holidays }).filter((entry) => entry.transaction.type === 'expense' && entry.date.startsWith(monthKey.slice(0, 7))), [transactions, paymentMethods, holidays, monthKey]);
+
   const rows = useMemo(() => {
     return expenseCategories.map((category) => {
       const budget = budgets.find(
         (entry) => entry.category_id === category.id && entry.month === monthKey
       )
-      const spent = transactions
-        .filter((transaction) => {
-          const date = new Date(transaction.date + 'T00:00:00')
-          return (
-            transaction.type === 'expense' &&
-            date.getFullYear() === month.getFullYear() &&
-            date.getMonth() === month.getMonth()
-          )
-        })
-        .reduce((sum, transaction) => {
-          const detailTotal = (transaction.details ?? [])
-            .filter((detail) => detail.category_id === category.id)
-            .reduce(
-              (detailSum, detail) =>
-                detailSum + getEffectiveDetailAmount(transaction, detail.quantity * detail.unit_price),
-              0
-            )
-          return sum + detailTotal
-        }, 0)
+      const spent = monthEntries.flatMap(getEntryCategoryAmounts).filter((allocation) => allocation.categoryId === category.id).reduce((sum, allocation) => sum + allocation.amount, 0);
       return { category, budget, spent }
     })
-  }, [expenseCategories, budgets, transactions, month, monthKey])
+  }, [expenseCategories, budgets, monthEntries, monthKey])
 
   const totals = useMemo(
     () => ({

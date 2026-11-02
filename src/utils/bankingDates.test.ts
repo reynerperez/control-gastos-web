@@ -121,6 +121,88 @@ describe('resolveDueDate', () => {
   })
 })
 
+describe('resolveDueDate con día fijo de pago', () => {
+  it('usa el mismo mes cuando el día fijo es posterior al corte', () => {
+    const result = resolveDueDate(
+      date('2026-10-05'),
+      { due_day: 20 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-10-20')
+    expect(result.mode).toBe('fixed_day')
+    expect(result.dueDay).toBe(20)
+    expect(result.graceDays).toBe(15)
+    expect(result.adjusted).toBe(false)
+    expect(result.estimated).toBe(false)
+  })
+
+  it('usa el mes siguiente cuando el día fijo es anterior al corte', () => {
+    const result = resolveDueDate(
+      date('2026-10-20'),
+      { due_day: 10 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-11-10')
+  })
+
+  it('con corte y pago el mismo día, vence al mes siguiente', () => {
+    const result = resolveDueDate(
+      date('2026-10-09'),
+      { due_day: 9 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-11-09')
+  })
+
+  it('ajusta el día 31 al último día del mes', () => {
+    const result = resolveDueDate(
+      date('2026-09-05'),
+      { due_day: 31 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-09-30')
+  })
+
+  it('si el día 31 coincide con el corte de febrero, avanza a marzo', () => {
+    const result = resolveDueDate(
+      date('2026-02-28'),
+      { due_day: 31 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-03-31')
+  })
+
+  it('no se recorre si cae en domingo', () => {
+    const result = resolveDueDate(
+      date('2026-10-15'),
+      { due_day: 15 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-11-15')
+    expect(result.adjusted).toBe(false)
+  })
+
+  it('no se recorre si cae en festivo', () => {
+    const result = resolveDueDate(
+      date('2026-10-02'),
+      { due_day: 2 },
+      holidays
+    )
+    expect(toISODate(result.dueDate)).toBe('2026-11-02')
+    expect(result.adjusted).toBe(false)
+  })
+
+  it('ignora un due_day inválido y usa la gracia', () => {
+    const result = resolveDueDate(
+      date('2026-10-15'),
+      { due_day: 0, grace_days: 20, grace_days_type: 'natural' },
+      holidays
+    )
+    expect(result.mode).toBe('grace_days')
+    expect(toISODate(result.dueDate)).toBe('2026-11-04')
+  })
+})
+
 describe('nextClosingDate', () => {
   it('ajusta el día 31 al último día de febrero', () => {
     const closing = nextClosingDate(date('2026-02-10'), 31)

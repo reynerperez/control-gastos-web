@@ -1,3 +1,4 @@
+import { isFinancedPaymentMethod } from '@/utils/paymentMethod'
 import { PaymentMethod, Transaction } from '@/types'
 
 import {
@@ -118,7 +119,7 @@ export function getInstallmentPlan(
   holidays: HolidaySet = EMPTY_HOLIDAYS
 ): InstallmentPlan | null {
   if (!isInstallmentTransaction(transaction) || !method) return null
-  if (method.type !== 'credit' || method.closing_day == null) return null
+  if (!isFinancedPaymentMethod(method.type) || method.closing_day == null) return null
 
   const count = transaction.installments_count
   const storedStart = transaction.installments_start_date
@@ -215,7 +216,7 @@ export function statementPeriodFromClosing(
   method: PaymentMethod,
   holidays: HolidaySet = EMPTY_HOLIDAYS
 ): StatementPeriod | null {
-  if (method.type !== 'credit' || method.closing_day == null) return null
+  if (!isFinancedPaymentMethod(method.type) || method.closing_day == null) return null
   const previousMonth = new Date(
     closingDate.getFullYear(),
     closingDate.getMonth() - 1,
@@ -235,6 +236,8 @@ export function statementPeriodFromClosing(
     closingDate,
     dueDate: due.dueDate,
     estimated: due.estimated,
+    dueDateMode: due.mode,
+    dueDay: due.dueDay,
     graceDays: due.graceDays,
     graceDaysType: due.graceDaysType,
     adjusted: due.adjusted,

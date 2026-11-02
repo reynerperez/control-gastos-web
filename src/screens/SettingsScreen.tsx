@@ -4,6 +4,7 @@ import { Text, XStack, YStack } from 'tamagui'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { AppIcon } from '@/components/ui/Icon'
+import { AppVersion } from '@/components/ui/AppVersion'
 import { palette } from '@/constants/theme'
 import { CSS_TRANSITION } from '@/constants/ui'
 import { useAuth } from '@/contexts/AuthContext'
@@ -87,9 +88,7 @@ export default function SettingsScreen() {
         </Card>
       </YStack>
 
-      <Text fontSize={12} textAlign="center" color="$tabIconDefault">
-        Control de Gastos · Web v1.0
-      </Text>
+      <AppVersion detailed />
     </YStack>
   )
 }

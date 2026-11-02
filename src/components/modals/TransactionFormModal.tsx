@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { getPaymentMethodColor, getPaymentMethodLabel, isFinancedPaymentMethod, getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { Button } from '@/components/ui/Button'
 import { DateField } from '@/components/ui/DateField'
 import { FormError, FormSection, MultilineInput, SectionLabel, TextInput } from '@/components/ui/Field'
@@ -11,7 +12,7 @@ import { palette } from '@/constants/theme'
 import { CSS_TRANSITION } from '@/constants/ui'
 import { useHolidays } from '@/contexts/HolidaysContext'
 import { useData } from '@/hooks/useData'
-import { PaymentMethodType, TransactionType } from '@/types'
+import { TransactionType } from '@/types'
 import {
   getBestCreditCard,
   getCreditCardPlans,
@@ -24,14 +25,11 @@ import {
   splitAmount,
 } from '@/utils/installments'
 import { getCurrentCoords } from '@/utils/location'
-import { getPaymentMethodIcon } from '@/utils/paymentMethod'
 
 /** Color del método de pago según su tipo (misma lógica que en la lista) */
-const paymentMethodColor = (type: PaymentMethodType) =>
-  type === 'credit' ? palette.warning : type === 'debit' ? palette.primary : palette.muted
+const paymentMethodColor = getPaymentMethodColor
 
-const paymentMethodLabel = (type: PaymentMethodType) =>
-  type === 'credit' ? 'Crédito' : type === 'debit' ? 'Débito' : 'Efectivo'
+const paymentMethodLabel = getPaymentMethodLabel
 
 type Props = {
   open: boolean
@@ -104,7 +102,7 @@ function TransactionFormDialog({
 
   const selectedMethod = paymentMethods.find((method) => method.id === paymentMethodId)
   const supportsMSI =
-    !editingPlan && type === 'expense' && selectedMethod?.type === 'credit'
+    !editingPlan && type === 'expense' && isFinancedPaymentMethod(selectedMethod?.type)
   const installmentCount = parseInt(installmentsInput, 10)
   const parsedAmount = parseFloat(amount.replace(',', '.')) || 0
   const installmentPreview =
@@ -143,6 +141,16 @@ function TransactionFormDialog({
   )
   const bestPlan = creditCardPlans[0] ?? null
 
+  // Todas las tarjetas que empatan en el máximo llevan el punto «Recomendado».
+  const recommendedIds = useMemo(() => {
+    if (!bestPlan) return new Set<string>()
+    return new Set(
+      creditCardPlans
+        .filter((plan) => plan.financingDays === bestPlan.financingDays)
+        .map((plan) => plan.method.id)
+    )
+  }, [bestPlan, creditCardPlans])
+
   const paymentOptions = useMemo<SelectOption[]>(
     () =>
       paymentMethods.map((method) => ({
@@ -151,9 +159,9 @@ function TransactionFormDialog({
         icon: getPaymentMethodIcon(method.type),
         color: paymentMethodColor(method.type),
         hint: paymentMethodLabel(method.type),
-        badge: bestPlan?.method.id === method.id ? 'Recomendado' : undefined,
+        badge: recommendedIds.has(method.id) ? 'Recomendado' : undefined,
       })),
-    [paymentMethods, bestPlan]
+    [paymentMethods, recommendedIds]
   )
 
   const autoSelectedRef = useRef(false)
@@ -189,7 +197,7 @@ function TransactionFormDialog({
   const handlePaymentMethodChange = (id: string | null) => {
     setPaymentMethodId(id)
     const method = paymentMethods.find((entry) => entry.id === id)
-    if (method?.type !== 'credit') setIsMSI(false)
+    if (!isFinancedPaymentMethod(method?.type)) setIsMSI(false)
   }
 
   const onSave = async () => {
@@ -221,8 +229,8 @@ function TransactionFormDialog({
     const applyMSI = isMSI && !editingPlan
     let installmentsStartDate: string | null = null
     if (applyMSI) {
-      if (selectedMethod?.type !== 'credit') {
-        setError('Los MSI solo aplican a tarjetas de crédito.')
+      if (!selectedMethod || !isFinancedPaymentMethod(selectedMethod.type)) {
+        setError('Los MSI solo aplican a tarjetas de crédito o departamentales.')
         return
       }
       if (!installmentCount || installmentCount < 2 || installmentCount > 60) {
@@ -301,7 +309,7 @@ function TransactionFormDialog({
   const msiReady =
     !isMSI ||
     !!editingPlan ||
-    (installmentCount >= 2 && installmentCount <= 60 && selectedMethod?.type === 'credit')
+    (installmentCount >= 2 && installmentCount <= 60 && isFinancedPaymentMethod(selectedMethod?.type))
   const canSave =
     !!isBrokenDown ||
     ((concepto.trim().length > 0 || merchant.trim().length > 0) &&

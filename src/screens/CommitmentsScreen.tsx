@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { isFinancedPaymentMethod } from '@/utils/paymentMethod'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { CategoryIcon } from '@/components/ui/CategoryIcon'
@@ -291,7 +292,7 @@ function MsiSection({
           <AppIcon name="card-outline" size={40} color={palette.muted} />
           <Text fontSize={14} color="$tabIconDefault" textAlign="center">
             No hay compras a meses sin intereses. Al registrar un gasto con
-            tarjeta de crédito puedes dividirlo en parcialidades.
+            tarjeta de crédito o departamental puedes dividirlo en parcialidades.
           </Text>
           <Button title="Registrar compra a MSI" size="sm" onPress={onCreate} />
         </YStack>
@@ -465,7 +466,7 @@ function RecurringSection({
           paymentMethods.find((entry) => entry.id === charge.payment_method_id) ??
           null
         const occurrence = getNextRecurringOccurrence(charge, method, new Date(), holidays)
-        const isCredit = method?.type === 'credit'
+        const isCredit = isFinancedPaymentMethod(method?.type)
         return (
           <Card key={charge.id} gap="$md" opacity={charge.active ? 1 : 0.55}>
             <XStack alignItems="flex-start" gap="$md">

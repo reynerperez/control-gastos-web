@@ -1,3 +1,4 @@
+import { isFinancedPaymentMethod } from '@/utils/paymentMethod'
 import { PaymentMethod, RecurringCharge } from '@/types'
 
 import { EMPTY_HOLIDAYS, type HolidaySet } from '@/utils/bankingDates'
@@ -72,7 +73,7 @@ export function getRecurringOccurrences(
 
   const end = charge.end_date ? parseISO(charge.end_date) : null
   const isCredit =
-    method?.type === 'credit' && method.closing_day != null
+    method != null && isFinancedPaymentMethod(method.type) && method.closing_day != null
 
   // Se generan meses extra hacia atrás/adelante porque un cobro de fin de
   // mes puede pagarse el mes siguiente (corte + días de gracia).

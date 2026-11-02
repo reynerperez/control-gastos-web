@@ -97,6 +97,30 @@ describe('getUpcomingCardPayments', () => {
     expect(payments[0].pendingClosing).toBe(true)
   })
 
+  it.each(['credit', 'departmental'] as const)('calcula el próximo pago con día fijo de una tarjeta %s', (type) => {
+    const fixed: PaymentMethod = {
+      ...card('F', 9),
+      type,
+      due_day: 9,
+      grace_days: null,
+      grace_days_type: undefined,
+    }
+    const transactions = [makeTransaction('sep15', '2026-09-15', 300, fixed.id)]
+
+    const payments = getUpcomingCardPayments({
+      paymentMethods: [fixed],
+      transactions,
+      recurringCharges: [],
+      today: new Date(2026, 9, 19), // 19 oct 2026
+    })
+
+    expect(payments).toHaveLength(1)
+    expect(payments[0].period.key).toBe('2026-10-09')
+    expect(payments[0].period.dueDate).toEqual(new Date(2026, 10, 9))
+    expect(payments[0].period.dueDateMode).toBe('fixed_day')
+    expect(payments[0].daysUntilDue).toBe(21)
+  })
+
   it('ordena por fecha límite y omite tarjetas sin cargos', () => {
     const cardA = card('A', 15) // paga 4 nov
     const cardB = card('B', 20) // paga 9 nov

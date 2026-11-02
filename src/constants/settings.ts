@@ -21,4 +21,5 @@ export const PAYMENT_TYPE_OPTIONS: { key: PaymentMethodType; label: string }[] =
   { key: 'cash', label: 'Efectivo' },
   { key: 'debit', label: 'Débito' },
   { key: 'credit', label: 'Crédito' },
+  { key: 'departmental', label: 'Departamental' },
 ]

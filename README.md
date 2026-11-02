@@ -14,11 +14,11 @@ Versión **web** del control de gastos personal. Se conecta a la **misma base de
 | Móvil | Web |
 | --- | --- |
 | Login / registro (email + contraseña) | `/login`, `/registro` |
-| Dashboard: balance, ingresos/gastos, dona por categoría, presupuestos, recomendación de tarjeta con días de financiamiento | `/` (Resumen) + movimientos recientes |
+| Dashboard: balance, ingresos/gastos, dona por categoría, presupuestos, calendario de tarjeta recomendada con días de financiamiento | `/` (Resumen) + movimientos recientes |
 | Movimientos: búsqueda, filtros (tipo, categorías, método de pago, pendientes), totales y agrupación colapsable por mes o por periodo de facturación (con una sola tarjeta de crédito filtrada) | `/movimientos` |
 | Alta / edición de movimiento (comercio, concepto, monto, categoría, requiere desglose, fecha, nota) + recomendador de tarjeta | Modal «Nuevo movimiento» |
-| Fecha de pago de tarjetas calculada con días de gracia naturales o hábiles y calendario bancario CNBV | Ajustes → Métodos de pago |
-| Compras a Meses Sin Intereses: parcialidad mensual derivada, sin duplicar filas | Check «Comprar a meses sin intereses» en el alta |
+| Fecha de pago de tarjetas: días de gracia naturales o hábiles (con calendario CNBV) o día fijo del mes | Ajustes → Métodos de pago |
+| Compras a Meses Sin Intereses: compra informativa en su mes y parcialidad contada en su mes de pago | Check «Comprar a meses sin intereses» en el alta |
 | Compromisos recurrentes (servicios, renta, suscripciones) y saldos MSI | `/compromisos` (pestañas MSI / Recurrentes) |
 | Proyección de MSI y servicios en la fecha límite de pago de cada tarjeta | Acordeón de «Periodos» en Movimientos |
 | Detalle del movimiento (incluye ubicación con enlace a mapas); edición inline con candado y guardado explícito en la web | `/movimientos/:id` (página completa) y side peek en la misma pestaña |
@@ -42,19 +42,23 @@ se deriva en el cliente (`src/utils/installments.ts`, `src/utils/recurringCharge
 
 | Concepto | Dónde vive | Cómo se proyecta |
 | --- | --- | --- |
-| Compra a MSI | `transactions` con `purchase_type = 'installments'`, `installments_count`, `installments_start_date`, `installments_paid`, `installments_settled_at` | Se reparte `amount` en parcialidades exactas (sin perder centavos). La primera cae en el corte que contiene la compra y las siguientes avanzan mes a mes. |
+| Compra a MSI | `transactions` con `purchase_type = 'installments'`, `installments_count`, `installments_start_date`, `installments_paid`, `installments_settled_at` | Se reparte `amount` en parcialidades exactas (sin perder centavos). La compra se muestra como fila informativa en su mes; la primera parcialidad cae en el pago del corte que contiene la compra y las siguientes avanzan mes a mes. |
 | Servicio/suscripción | Tabla `recurring_charges` (`amount`, `frequency`, `charge_day`, `start_date`, `end_date`, `active`) | Se generan ocurrencias mensuales/anuales. Con tarjeta de crédito se mapean al corte y fecha límite de pago; con débito/efectivo, al mes natural. |
 
 Consecuencias en los totales:
 
-- Una compra a MSI aporta **solo su primera parcialidad** al periodo de compra; el resto se
-  inyecta en los periodos siguientes como «Cargos proyectados».
+- La compra a MSI aparece en su mes como **fila informativa**: monto total atenuado y **sin
+  sumar** al balance, al donut ni a presupuestos.
+- Cada parcialidad se cuenta en el **mes de su fecha de pago**. En Movimientos y Resumen se
+  muestra como `MSI n/N`; la primera puede caer en un mes posterior al de la compra.
 - En Resumen, Movimientos y Presupuestos los importes de detalle se escalan a la parcialidad
-  del mes (`getEffectiveDetailAmount`), para no contar el total de la compra de golpe.
+  que vence en el mes (`getEntryCategoryAmounts` en el ledger web), para no contar el total de
+  la compra de golpe.
 - `installments_paid` se calcula también por fecha de vencimiento: las parcialidades cuyo pago
   ya pasó se consideran cubiertas. «Liquidar» cierra el plan (`installments_settled_at`) y
   deja de proyectar el saldo; el pago real se registra como movimiento normal.
-- Las proyecciones son informativas: **no crean movimientos** ni modifican el saldo.
+- Las proyecciones **no crean filas** en la base; el saldo de cada mes incluye las
+  parcialidades y cargos recurrentes que vencen en ese mes.
 
 ### Agrupación por periodos de pago
 
@@ -71,23 +75,35 @@ anterior) y los totales no quedan incompletos.
 - Los filtros de categoría, búsqueda, tipo y pendientes también se aplican a las
   proyecciones.
 
+### Tarjetas departamentales
+
+El tipo **Departamental** permite registrar compras, MSI y fechas de corte/pago
+para tarjetas como Liverpool. Estas tarjetas se excluyen de la recomendación
+diaria y de los rangos del calendario. La migración
+`20261102090000_departmental_payment_methods.sql` agrega el tipo y reclasifica
+los métodos de crédito cuyo nombre empieza con «Liverpool», sin cambiar sus
+identificadores, compras ni configuración de pago. Aplica las migraciones con
+`supabase db push` al entorno correspondiente antes de guardar este nuevo tipo.
+
 ### Fechas de pago de tarjetas
 
-La fecha límite **no se guarda**: se calcula a partir del corte y de los días de gracia.
+La fecha límite **no se guarda**: se calcula a partir del corte y de la
+configuración de pago (días de gracia o día fijo del mes).
 
 | Dato | Significado |
 | --- | --- |
 | `closing_day` | Día de corte. Nunca se mueve. |
-| `grace_days` | Días entre el corte y el pago (0–60). |
-| `grace_days_type` | `natural` o `business` (días hábiles bancarios). |
+| `due_day` | Día fijo de pago (1–31). Si existe, sustituye a los días de gracia. |
+| `grace_days` | Días entre el corte y el pago (0–60). Solo aplica si `due_day` es null. |
+| `grace_days_type` | `natural` o `business` (días hábiles bancarios). Solo aplica si `due_day` es null. |
 | `cardholder_name` | Titular de la tarjeta. |
-| `due_day` | **Eliminado**. La fecha de pago no se guarda. |
 
 Reglas del motor (`src/utils/bankingDates.ts`):
 
+- **Día fijo:** pago = primer día `due_day` posterior al corte. La fecha es exacta: no se recorre por fin de semana ni festivo.
+- **Días de gracia:** pago = corte + `grace_days`. Si cae en inhábil, se mueve al siguiente día hábil.
 - Días hábiles = lunes a viernes, excluyendo fines de semana y días inhábiles bancarios.
 - Los días inhábiles se leen de la tabla global `holidays` (calendario CNBV, México).
-- Si la fecha calculada cae en inhábil, se mueve al siguiente día hábil.
 - No se ajusta el corte ni se suman días por zona horaria.
 
 El seed incluye 2024–2035; 2026 usa el calendario oficial de la CNBV y los demás años se
@@ -96,12 +112,14 @@ generan con las mismas reglas. Se pueden agregar cierres extraordinarios manualm
 
 Migraciones: `supabase/migrations/20261019163800_msi_recurring_charges.sql`,
 `20261019184444_card_grace_days_holidays.sql`,
-`20261019190000_seed_holidays_2031_2035.sql` y
-`20261024090000_shared_households.sql`. La segunda agrega los días de gracia, crea el
-calendario CNBV y elimina `due_day` después del backfill. La última introduce el
-**espacio compartido**: cada usuario tiene un hogar (`households`) y todos los datos llevan
-`household_id`; las políticas RLS permiten ver y editar lo del mismo hogar. La web es la
-fuente principal del esquema; el móvil consume la misma base de datos.
+`20261019190000_seed_holidays_2031_2035.sql`,
+`20261024090000_shared_households.sql` y
+`20261030120000_payment_methods_fixed_due_day.sql`. La segunda agrega los días de gracia,
+crea el calendario CNBV y elimina el `due_day` original después del backfill; la última
+reintroduce `due_day` como día fijo de pago opcional (sin ajuste a día hábil). La de
+hogares introduce el **espacio compartido**: cada usuario tiene un hogar (`households`) y
+todos los datos llevan `household_id`; las políticas RLS permiten ver y editar lo del mismo
+hogar. La web es la fuente principal del esquema; el móvil consume la misma base de datos.
 
 ### Espacio compartido (hogar)
 
@@ -247,6 +265,7 @@ La web reutiliza ficheros del proyecto Expo **como copias** (proyectos independi
 | `src/tamagui.config.ts` | Copia literal. Es la fuente única del diseño (colores, spacing, radius, temas) |
 | `src/types/index.ts` | Copia literal (tipos del modelo de datos) |
 | `src/utils/format.ts`, `src/utils/paymentMethod.ts`, `src/utils/user.ts` | Copia literal |
+| `src/utils/{bankingDates,creditCardRecommendation,installments,recurringCharges,paymentPeriods,upcomingCardPayments,movementLedger,paymentSchedule,transactionDraft,transactionAuthor}.ts` y sus pruebas | Motor compartido: fechas, calendario, MSI, totales y autor real |
 | `src/constants/theme.ts` | Copia literal (deriva de `tamagui.config.ts`) |
 | `src/contexts/PeriodContext.tsx`, `src/contexts/FiltersContext.tsx` | Copia literal |
 | `src/contexts/AuthContext.tsx`, `src/hooks/useData.tsx` | Copia, con la única diferencia del cliente Supabase |
@@ -301,6 +320,54 @@ una variable, vuelve a desplegar para que se regenere el bundle.
 > Alternativa: los valores de `.env.production` se pueden subir como *variables de entorno* de
 > Cloudflare sin usar el archivo. Nunca uses `wrangler`/CI con credenciales en texto plano en
 > el repositorio.
+
+## Identificación de versiones y despliegues web
+
+La versión funcional se define **solo en `package.json`**. Las etiquetas del título
+y de Ajustes usan `AppVersion` y muestran `v1.0.0 · a83f912b`, por ejemplo. El
+segundo valor identifica una compilación concreta y se genera automáticamente:
+
+- En Cloudflare Workers Builds se utiliza `WORKERS_CI_BUILD_UUID` como identidad.
+- En builds locales y otros proveedores se genera un UUID nuevo. Dos builds del
+  mismo commit también tienen identidades distintas.
+- El código de ocho caracteres visible se deriva de esa identidad completa.
+  Es un identificador, no un contador incremental.
+- Para una CI propia se puede definir `APP_BUILD_ID`. Si se fija manualmente,
+  debe tener un valor distinto para cada entrega.
+
+`npm run build` incluye los mismos metadatos en el JavaScript y en
+`dist/version.json`: versión, identidad completa y corta, fecha UTC, entorno,
+commit y estado del código respecto a Git. Los metadatos no incluyen credenciales ni otras
+variables de entorno. El commit se obtiene de Workers Builds, Cloudflare Pages,
+GitHub Actions o Git local; si Git no está disponible, el build sigue funcionando.
+Los cambios sin confirmar se identifican como «con cambios locales» en Ajustes.
+
+**La etiqueta describe el código que tiene cargado esa pestaña.** No se consulta
+la versión del servidor para reemplazarla: una pestaña antigua conserva su ID
+hasta que se recarga. Si se redespliega el mismo `dist`, conserva el ID porque es
+la misma compilación. `/version.json` permite consultar los metadatos publicados.
+En desarrollo la identidad corresponde al arranque de Vite, no a cada cambio por HMR.
+
+En Ajustes se muestran también la fecha (en la zona horaria del navegador), el
+entorno y el commit. Para subir la versión funcional sin crear un commit ni un
+tag automáticamente:
+
+```bash
+npm version patch --no-git-tag-version   # 1.0.0 → 1.0.1
+npm run build
+```
+
+El entorno visible es `development` en `npm run dev` y `production` en el build
+normal. Para los despliegues de vista previa configura **`APP_ENV=preview`** en
+las variables de compilación de Cloudflare (también admite `development` y
+`production`). No se deduce el entorno por el nombre de una rama. `APP_ENV` solo cambia la
+etiqueta visible; la conexión a Supabase sigue las variables `VITE_*` del entorno.
+
+```bash
+APP_ENV=preview npm run build
+```
+
+Este mecanismo solo aplica a la web; el móvil mantiene su configuración propia.
 
 ## Limitaciones conocidas
 

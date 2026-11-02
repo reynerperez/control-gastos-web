@@ -112,7 +112,7 @@ const DEFAULT_CATEGORIES: Omit<Category, 'id' | 'user_id' | 'created_at'>[] = [
 const DEFAULT_PAYMENT_METHODS: Omit<PaymentMethod, 'id' | 'user_id' | 'created_at'>[] = [
   { name: 'Efectivo', type: 'cash', closing_day: null },
   { name: 'Tarjeta de Débito', type: 'debit', closing_day: null },
-  { name: 'Tarjeta de Crédito', type: 'credit', closing_day: 15, grace_days: 20, grace_days_type: 'natural' },
+  { name: 'Tarjeta de Crédito', type: 'credit', closing_day: 15, grace_days: 20, grace_days_type: 'natural', due_day: null },
 ];
 
 export function DataProvider({ children }: { children: React.ReactNode }) {

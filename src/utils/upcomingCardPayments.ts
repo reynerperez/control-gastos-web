@@ -1,3 +1,4 @@
+import { isFinancedPaymentMethod } from '@/utils/paymentMethod'
 import { PaymentMethod, RecurringCharge, Transaction } from '@/types'
 import {
   EMPTY_HOLIDAYS,
@@ -61,7 +62,7 @@ export function getNextPaymentPeriod(
   today: Date = new Date(),
   holidays: HolidaySet = EMPTY_HOLIDAYS
 ): StatementPeriod | null {
-  if (card.type !== 'credit' || card.closing_day == null) return null
+  if (!isFinancedPaymentMethod(card.type) || card.closing_day == null) return null
 
   const reference = startOfDay(today)
   const year = reference.getFullYear()
@@ -99,7 +100,7 @@ export function getUpcomingCardPayments({
   const payments: UpcomingCardPayment[] = []
 
   for (const card of paymentMethods) {
-    if (card.type !== 'credit' || card.closing_day == null) continue
+    if (!isFinancedPaymentMethod(card.type) || card.closing_day == null) continue
 
     const groups = buildCardPeriodGroups({
       card,

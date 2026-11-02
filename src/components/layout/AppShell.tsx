@@ -3,6 +3,7 @@ import { Text, XStack, YStack, ScrollView } from 'tamagui'
 
 import { Button } from '@/components/ui/Button'
 import { AppIcon } from '@/components/ui/Icon'
+import { AppVersion } from '@/components/ui/AppVersion'
 import { palette } from '@/constants/theme'
 import { CSS_TRANSITION } from '@/constants/ui'
 import { useAuth } from '@/contexts/AuthContext'
@@ -91,9 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Text fontSize={15} fontWeight="800" color="$text">
               Control de Gastos
             </Text>
-            <Text fontSize={12} color="$tabIconDefault">
-              v1.1
-            </Text>
+            <AppVersion />
           </YStack>
         </XStack>
 

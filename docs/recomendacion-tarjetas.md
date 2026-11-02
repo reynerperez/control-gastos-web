@@ -20,16 +20,23 @@ fecha en el formulario no modifica la tarjeta recomendada.
 
 ### Tarjetas (`payment_methods`)
 
-Solo se consideran métodos con `type = 'credit'` y configuración completa:
+Solo se consideran métodos con `type = 'credit'` y configuración completa.
+Las departamentales (`type = 'departmental'`), como Liverpool, se excluyen de
+los planes, la preselección y todos los rangos del calendario. Conservan su
+corte, fecha de pago y compras a MSI para el registro de gastos.
+
+Configuración de las tarjetas elegibles:
 
 | Campo | Uso |
 | --- | --- |
 | `closing_day` | Día del mes en que corta la tarjeta (1–31). |
+| `due_day` | Día fijo de pago (1–31). Si existe, sustituye a los días de gracia. |
 | `grace_days` | Días de gracia desde el corte hasta el pago (0–60). |
 | `grace_days_type` | `natural` o `business`; define cómo se cuentan los días de gracia. |
 
-Las tarjetas a las que les falta `closing_day`, `grace_days` o
-`grace_days_type` **no entran en la recomendación**. Siguen disponibles en el
+Una tarjeta entra en la recomendación si tiene `closing_day` y una fecha de
+pago configurada: **`due_day`** o **`grace_days` + `grace_days_type`**. Las
+tarjetas a las que les falta esa configuración siguen disponibles en el
 selector de métodos de pago para usarlas manualmente, pero no reciben el punto
 de recomendada ni se auto-seleccionan.
 
@@ -74,6 +81,10 @@ fecha límite de pago.
 
 A partir de la fecha de corte:
 
+- **Día fijo** (`due_day` definido): la fecha teórica es el primer día
+  `due_day` **estrictamente posterior** al corte. Si el día no existe en el
+  mes, se usa el último día del mes. Si coincide con el corte, se avanza al
+  mes siguiente.
 - **Días naturales** (`grace_days_type = 'natural'`):
   `fechaTeórica = corte + grace_days`.
 - **Días hábiles** (`grace_days_type = 'business'`):
@@ -81,10 +92,22 @@ A partir de la fecha de corte:
   viernes que no sean festivos), hasta completar `grace_days`.
   El día del corte no cuenta; el primer día hábil siguiente es el día 1.
 
+#### Día fijo: ejemplos
+
+| Corte | Pago fijo | Compra | Próximo corte | Vence |
+| ---: | ---: | --- | --- | --- |
+| 9 | 9 | 10 oct 2026 | 9 nov 2026 | 9 dic 2026 |
+| 20 | 10 | 21 oct 2026 | 20 nov 2026 | 10 dic 2026 |
+| 5 | 20 | 6 nov 2026 | 5 dic 2026 | 20 dic 2026 |
+| 31 | 31 | 10 feb 2026 | 28 feb 2026 | 31 mar 2026 |
+
+Con corte 9 y pago 9, el pago queda un mes después del corte, que es el
+periodo sin intereses habitual de esas tarjetas.
+
 ### 4. Ajuste a día hábil
 
-Si la fecha teórica cae en sábado, domingo o festivo, se avanza al siguiente
-día hábil:
+**Solo en modo de días de gracia.** Si la fecha teórica cae en sábado, domingo
+o festivo, se avanza al siguiente día hábil:
 
 ```ts
 dueDate = nextBusinessDay(rawDueDate, holidays)
@@ -92,6 +115,9 @@ dueDate = nextBusinessDay(rawDueDate, holidays)
 
 Se registra `adjusted = true` cuando la fecha efectiva es distinta de la
 teórica.
+
+En modo de **día fijo** la fecha es exacta: **no se recorre** aunque caiga en
+fin de semana o festivo. `dueDate = rawDueDate` y `adjusted = false`.
 
 ### 5. Días de financiamiento
 
@@ -107,13 +133,61 @@ el día de la compra de forma adicional.
 Las tarjetas se ordenan con estos criterios, en orden:
 
 1. `financingDays` descendente (más días primero).
-2. `graceDays` descendente (a igual fecha de pago, gana la que tiene más gracia).
+2. `graceDays` descendente (a igual fecha de pago, gana la que tiene más
+   gracia). En modo de día fijo, `graceDays` es la diferencia efectiva entre el
+   corte y el pago.
 3. `dueDate` ascendente.
 4. `closingDate` ascendente.
 5. Nombre de la tarjeta ascendente, para que el resultado sea determinista.
 
 La primera tarjeta del listado es la recomendada. `getBestCreditCard` devuelve
 ese primer plan o `null` si no hay tarjetas elegibles.
+
+## Calendario de recomendaciones
+
+Además de la recomendación de hoy, el motor calcula un calendario de 12 meses
+(365 días) con los tramos en los que cada conjunto de tarjetas ofrece el mayor
+financiamiento. El Resumen prioriza la tarjeta de hoy, hasta cuándo conviene y la fecha de
+pago al comprar hoy. «Después» anticipa la siguiente recomendación; «Ver rangos
+por tarjeta» despliega las próximas fechas de uso sin recargar la vista inicial.
+
+- Para cada día se calculan los días de financiamiento de todas las tarjetas
+  elegibles y se quedan las que empatan en el máximo.
+- Los días consecutivos con el mismo conjunto de ganadoras se agrupan en un
+  tramo (`RecommendationInterval`).
+- El tramo **no** se corta cuando cambia el corte de la propia tarjeta; solo
+  cuando cambia el conjunto de ganadoras.
+- `startDate` y `endDate` son inclusivos. `maxFinancingDays` corresponde al
+  primer día del tramo y `minFinancingDays` al último.
+- `getTodayRecommendation` devuelve el tramo vigente y
+  `getUpcomingIntervals` los siguientes tramos de una tarjeta.
+
+En la web, `cardUsageRanges.ts` adapta estos tramos para mostrar **un rango
+continuo por tarjeta** en la lista del dashboard. Si una tarjeta sigue ganando cuando cambia
+el conjunto de empatadas, su rango no se corta. Para las recomendadas hoy se
+busca el inicio hasta 366 días hacia atrás, con la configuración actual y el
+calendario de festivos disponible; no es un historial de configuraciones antiguas.
+El resumen conserva el plan calculado desde hoy para la fecha de pago y los días
+de financiamiento. Si un límite no aparece dentro del horizonte consultado, no
+se muestra la fecha de ese borde como si fuera el inicio o el fin real.
+
+Como el día de corte es inclusivo (una compra en el día de corte pertenece a
+ese ciclo), el mejor día para comprar suele ser **el siguiente al corte**.
+
+Ejemplo con 6 tarjetas de crédito (Liverpool es departamental y queda excluida), hoy 30 de octubre de 2026 y sin festivos
+cargados:
+
+| Del | Al | Tarjeta(s) |
+| --- | --- | --- |
+| 30 oct 2026 | 2 nov 2026 | Nu Pao · Rappi Pao |
+| 3 nov 2026 | 11 nov 2026 | Banamex Pao · BBVA Pao |
+| 12 nov 2026 | 15 nov 2026 | BBVA Reny |
+| 16 nov 2026 | 26 nov 2026 | Rappi Pao |
+| 27 nov 2026 | 2 dic 2026 | Nu Pao |
+| 3 dic 2026 | 11 dic 2026 | Banamex Pao · BBVA Pao |
+
+El patrón se repite cada mes con variaciones por la duración del mes y por los
+ajustes a día hábil.
 
 ## Ejemplo
 
@@ -145,19 +219,22 @@ criterio de desempate.
 - **Meses de 28, 29, 30 y 31 días:** el corte se ajusta al último día del mes.
   En año bisiesto, febrero termina el 29.
 - **Corte en fin de semana:** el corte se queda en esa fecha; no se recorre.
-- **Pago en sábado o domingo:** se mueve al lunes siguiente.
-- **Pago en festivo:** se mueve al siguiente día hábil.
+- **Pago con gracia en sábado o domingo:** se mueve al lunes siguiente.
+- **Pago con gracia en festivo:** se mueve al siguiente día hábil.
 - **Festivo seguido de fin de semana:** se siguen saltando días hasta encontrar
   uno hábil.
 - **Días de gracia hábiles:** se saltan fines de semana y festivos al contar.
+- **Pago fijo en fin de semana o festivo:** se queda en la fecha exacta; no se
+  recorre.
 - **Tarjetas sin configuración completa:** se excluyen de la recomendación.
 
 ## Limitaciones conocidas
 
-- **Siempre es para hoy.** No es una recomendación histórica ni para la fecha
-  seleccionada en un movimiento.
-- **No considera tarjetas departamentales.** El modelo actual no tiene un campo
-  para distinguirlas ni reglas de calendario propias.
+- **La recomendación de hoy no es histórica.** El calendario proyecta 12 meses
+  hacia adelante, pero no recalcula meses pasados ni usa la fecha seleccionada
+  en un movimiento.
+- **El día fijo se repite cada mes.** No admite fechas únicas ni promociones
+  con vencimiento especial.
 - **No considera límite de crédito, saldo disponible ni promociones.**
 - **No calcula el beneficio total de una compra a MSI.** Para MSI se sigue
   usando la fecha de la primera parcialidad, no la suma de todos los meses.
@@ -167,11 +244,12 @@ criterio de desempate.
 ## Archivos relacionados
 
 - `src/utils/creditCardRecommendation.ts` — cálculo del corte, pago,
-  financiamiento y orden.
+  financiamiento, orden y calendario de tramos.
 - `src/utils/bankingDates.ts` — días hábiles, festivos, suma de días y
   diferencias entre fechas.
 - `src/contexts/HolidaysContext.tsx` — carga del calendario CNBV.
-- `src/screens/DashboardScreen.tsx` — tarjeta recomendada «para hoy».
+- `src/screens/DashboardScreen.tsx` — tarjeta recomendada «para hoy» y
+  calendario de uso por tarjeta.
 - `src/components/modals/TransactionFormModal.tsx` — preselección y punto de
   recomendada en el alta de movimientos.
 
@@ -182,4 +260,7 @@ criterio de desempate.
 
 Cubren fin de semana, festivos, festivo + fin de semana, días hábiles, día 31
 en febrero, año bisiesto, corte fijo en fin de semana, exclusión de tarjetas
-sin configuración y desempate por días de gracia.
+sin configuración, desempate por días de gracia, día fijo de pago (mismo mes,
+mes siguiente, día 31, fecha exacta sin ajuste) y el calendario de tramos
+(empates, recurrencia mensual, horizonte de 12 meses y el patrón con 6
+tarjetas de crédito y una departamental excluida).

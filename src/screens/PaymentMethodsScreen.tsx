@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { getPaymentMethodColor, getPaymentMethodLabel } from '@/utils/paymentMethod'
 import { PaymentMethodEditorModal } from '@/components/settings/PaymentMethodEditorModal'
 import { BackLink } from '@/components/ui/BackLink'
 import { Card } from '@/components/ui/Card'
@@ -9,10 +10,10 @@ import { AppIcon } from '@/components/ui/Icon'
 import { palette } from '@/constants/theme'
 import { CSS_TRANSITION } from '@/constants/ui'
 import { useData } from '@/hooks/useData'
-import { PaymentMethod, PaymentMethodType } from '@/types'
+import { PaymentMethod } from '@/types'
+import { formatCreditPaymentSchedule } from '@/utils/paymentSchedule'
 
-const typeColor = (type: PaymentMethodType) =>
-  type === 'credit' ? palette.warning : type === 'debit' ? palette.primary : palette.muted
+const typeColor = getPaymentMethodColor
 
 const typeLabel = (method: PaymentMethod) => {
   if (method.type === 'cash') return 'Efectivo'
@@ -20,9 +21,7 @@ const typeLabel = (method: PaymentMethod) => {
     ? ` · A nombre de ${method.cardholder_name}`
     : ''
   if (method.type === 'debit') return `Débito${holder}`
-  const grace = method.grace_days ?? 20
-  const graceType = method.grace_days_type === 'business' ? 'hábiles' : 'naturales'
-  return `Crédito · Corte ${method.closing_day ?? '—'} · Pago ${grace} días ${graceType}${holder}`
+  return `${getPaymentMethodLabel(method.type)} · ${formatCreditPaymentSchedule(method)}${holder}`
 }
 
 /**
@@ -84,7 +83,7 @@ export default function PaymentMethodsScreen() {
                   borderRadius="$full"
                   alignItems="center"
                   justifyContent="center"
-                  backgroundColor={method.type === 'credit' ? palette.warning + '22' : palette.primaryLight}>
+                  backgroundColor={getPaymentMethodColor(method.type) + '22'}>
                   <AppIcon
                     name={
                       method.type === 'cash' ? 'cash-outline' : method.type === 'debit' ? 'card-outline' : 'card'

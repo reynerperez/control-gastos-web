@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { getPaymentMethodColor, getPaymentMethodLabel, getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { BorderedChip } from '@/components/ui/BorderedStack'
 import { AppIcon } from '@/components/ui/Icon'
 import { Modal } from '@/components/ui/Modal'
@@ -9,8 +10,6 @@ import { palette } from '@/constants/theme'
 import { CSS_TRANSITION } from '@/constants/ui'
 import { useFilters, type TypeFilter } from '@/contexts/FiltersContext'
 import { useData } from '@/hooks/useData'
-import { PaymentMethodType } from '@/types'
-import { getPaymentMethodIcon } from '@/utils/paymentMethod'
 
 const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
@@ -18,11 +17,9 @@ const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
   { value: 'income', label: 'Ingresos' },
 ]
 
-const paymentMethodColor = (type: PaymentMethodType) =>
-  type === 'credit' ? palette.warning : type === 'debit' ? palette.primary : palette.muted
+const paymentMethodColor = getPaymentMethodColor
 
-const paymentMethodLabel = (type: PaymentMethodType) =>
-  type === 'credit' ? 'Crédito' : type === 'debit' ? 'Débito' : 'Efectivo'
+const paymentMethodLabel = getPaymentMethodLabel
 
 /**
  * Filtros de movimientos — igual que el sheet del móvil, aplicando los

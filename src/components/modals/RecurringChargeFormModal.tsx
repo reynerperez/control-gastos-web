@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Text, XStack, YStack } from 'tamagui'
 
+import { getPaymentMethodColor, getPaymentMethodLabel, isFinancedPaymentMethod, getPaymentMethodIcon } from '@/utils/paymentMethod'
 import { Button } from '@/components/ui/Button'
 import { DateField } from '@/components/ui/DateField'
 import { FormError, FormSection, SectionLabel, TextInput } from '@/components/ui/Field'
@@ -12,7 +13,6 @@ import { CSS_TRANSITION } from '@/constants/ui'
 import { useData } from '@/hooks/useData'
 import { RecurringFrequency } from '@/types'
 import { formatCurrency, toISODate } from '@/utils/format'
-import { getPaymentMethodIcon } from '@/utils/paymentMethod'
 
 type Props = {
   open: boolean
@@ -65,7 +65,7 @@ function RecurringChargeDialog({
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(() => {
     if (editing) return editing.payment_method_id ?? null
     return (
-      paymentMethods.find((method) => method.type === 'credit')?.id ??
+      paymentMethods.find((method) => isFinancedPaymentMethod(method.type))?.id ??
       paymentMethods[0]?.id ??
       null
     )
@@ -105,10 +105,10 @@ function RecurringChargeDialog({
         id: method.id,
         label: method.name,
         icon: getPaymentMethodIcon(method.type),
-        color: method.type === 'credit' ? palette.warning : palette.primary,
+        color: getPaymentMethodColor(method.type),
         hint:
-          method.type === 'credit'
-            ? 'Crédito · se proyecta al corte'
+          isFinancedPaymentMethod(method.type)
+            ? `${getPaymentMethodLabel(method.type)} · se proyecta al corte`
             : method.type === 'debit'
               ? 'Débito · mes natural'
               : 'Efectivo · mes natural',
@@ -118,7 +118,7 @@ function RecurringChargeDialog({
 
   const selectedMethod = paymentMethods.find((method) => method.id === paymentMethodId)
   const parsedAmount = parseFloat(amount.replace(',', '.')) || 0
-  const isCredit = selectedMethod?.type === 'credit'
+  const isCredit = isFinancedPaymentMethod(selectedMethod?.type)
 
   const onSave = async () => {
     setError(null)
@@ -378,7 +378,7 @@ function RecurringChargeDialog({
           </YStack>
         ) : (
           <Text fontSize={11} color="$tabIconDefault">
-            Sin tarjeta de crédito se proyecta en el mes natural (día {chargeDay}).
+            Sin tarjeta de crédito o departamental se proyecta en el mes natural (día {chargeDay}).
           </Text>
         )}
       </FormSection>
